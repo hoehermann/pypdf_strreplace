@@ -3,7 +3,7 @@ import argparse
 import binascii
 import pypdf
 from typing import Any, Callable, Dict, Tuple, Union, cast
-from pypdf.generic import DictionaryObject, NameObject, RectangleObject, EncodedStreamObject, DecodedStreamObject
+from pypdf.generic import DictionaryObject, NameObject, RectangleObject
 from pypdf.constants import PageAttributes as PG
 from pypdf._cmap import build_char_map
 
@@ -23,6 +23,12 @@ def get_char_maps(obj: Any, space_width: float = 200.0):
     if "/Font" in resources_dict:
         for f in cast(DictionaryObject, resources_dict["/Font"]):
             cmaps[f] = build_char_map(f, space_width, obj)
+    for cmap in cmaps.values():
+        if (
+            ("/Encoding" in cmap[4] and cmap[4]["/Encoding"] == "/WinAnsiEncoding") or
+            (cmap[2] == "charmap") # NOTE: can also be a table byte → character
+        ):
+            print("WARNING: This tool assumes subsetting with a charmap or WinAnsiEncoding (cp1252).")
     return {cmap[4]["/BaseFont"]:cmap[3] for cmap in cmaps.values()}
 
 if __name__ == "__main__":
@@ -50,18 +56,24 @@ if __name__ == "__main__":
             elif (fontname.endswith(args.font)):
                 args.font = fontname
 
+        # have these set to None for runs with only --debug-data
         search = None
         replace = None
         if (args.font and args.search and args.replace):
             charmap = cmaps[args.font]
-            reverse_charmap = {v:k for k,v in charmap.items()}
-            def full_to_subsetted(full):
-                missing = set([c for c in full if c not in reverse_charmap])
-                if (missing):
-                    raise KeyError(f'These characters are not available in the selected font and cannot be used in replacements: {"".join(missing)}')
-                subsetted = ''.join([reverse_charmap[c] for c in full])
-                subsetted = subsetted.replace(r'(',r'\(').replace(r')',r'\)') # TODO: which other characters must be escaped? probably < and >
-                return subsetted.encode('ascii') # TODO: use original cmap[2] here
+            if (charmap):
+                # Subsetting is active. Prepare lookup function.
+                reverse_charmap = {v:k for k,v in charmap.items()}
+                def full_to_subsetted(full):
+                    missing = set([c for c in full if c not in reverse_charmap])
+                    if (missing):
+                        raise KeyError(f'These characters are not available in the selected font and cannot be used in replacements: {"".join(missing)}')
+                    subsetted = ''.join([reverse_charmap[c] for c in full])
+                    subsetted = subsetted.replace(r'(',r'\(').replace(r')',r'\)') # TODO: which other characters must be escaped? probably < and >
+                    return subsetted.encode('cp1252') # TODO: use original cmap[2] here
+            else:
+                # Subsetting is not active. Just encode the string.
+                full_to_subsetted = lambda full: full.encode('cp1252') # TODO: use original cmap[2] here
             search = full_to_subsetted(args.search)
             replace = full_to_subsetted(args.replace)
             if (args.debug_subsetting):
