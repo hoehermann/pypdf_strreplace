@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import binascii
 import pypdf
 from typing import Any, Callable, Dict, Tuple, Union, cast
 from pypdf.generic import DictionaryObject, NameObject, RectangleObject, EncodedStreamObject, DecodedStreamObject
@@ -26,12 +27,14 @@ def get_char_maps(obj: Any, space_width: float = 200.0):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Replace text in a PDF file.')
-    parser.add_argument('--input')
-    parser.add_argument('--output')
-    parser.add_argument('--papersize', default="A4")
-    parser.add_argument('--font', required=False)
-    parser.add_argument('--search', required=False)
-    parser.add_argument('--replace', required=False)
+    parser.add_argument('--input', type=str, required=True)
+    parser.add_argument('--output', type=str)
+    parser.add_argument('--papersize', type=str, default="A4")
+    parser.add_argument('--font', type=str)
+    parser.add_argument('--search', type=str)
+    parser.add_argument('--replace', type=str)
+    parser.add_argument('--debug-subsetting', action='store_true')
+    parser.add_argument('--debug-data', action='store_true')
     args = parser.parse_args()
     total_replacements = 0
     reader = pypdf.PdfReader(args.input)
@@ -46,40 +49,61 @@ if __name__ == "__main__":
                 print(fontname)
             elif (fontname.endswith(args.font)):
                 args.font = fontname
-        if (not args.font):
-            continue
 
-        charmap = cmaps[args.font]
-        reverse_charmap = {v:k for k,v in charmap.items()}
-        def full_to_subsetted(full):
-            subsetted = ''.join([reverse_charmap[c] for c in full])
-            subsetted = subsetted.replace(r'(',r'\(').replace(r')',r'\)') # TODO: which other characters must be escaped?
-            return subsetted.encode('ascii') # TODO: use original cmap[2] here
-        search = full_to_subsetted(args.search)
-        replace = full_to_subsetted(args.replace)
+        search = None
+        replace = None
+        if (args.font and args.search and args.replace):
+            charmap = cmaps[args.font]
+            reverse_charmap = {v:k for k,v in charmap.items()}
+            def full_to_subsetted(full):
+                missing = set([c for c in full if c not in reverse_charmap])
+                if (missing):
+                    raise KeyError(f'These characters are not available in the selected font and cannot be used in replacements: {"".join(missing)}')
+                subsetted = ''.join([reverse_charmap[c] for c in full])
+                subsetted = subsetted.replace(r'(',r'\(').replace(r')',r'\)') # TODO: which other characters must be escaped? probably < and >
+                return subsetted.encode('ascii') # TODO: use original cmap[2] here
+            search = full_to_subsetted(args.search)
+            replace = full_to_subsetted(args.replace)
+            if (args.debug_subsetting):
+                print(f"After subsetting, „{args.search}“ looks like {search} or {binascii.hexlify(search).upper()}.")
 
-        page_replacements = 0
         # based on https://stackoverflow.com/questions/41769120/search-and-replace-for-text-within-a-pdf-in-python#69276885
+        def replace_in_content(content, search, replace):
+            content_replacements = 0
+            data = content.get_data()
+            if (args.debug_data):
+                print(data)
+            if (search and replace):
+                while (search in data):
+                    data = data.replace(search, replace, 1)
+                    content_replacements += 1
+                # brute-forcefully retry with hexlified variant (PDF can have both ascii and binary representations)
+                search = binascii.hexlify(search).upper() # TODO: research if binary representations are really always uppercase
+                replace = binascii.hexlify(replace).upper()
+                while (search in data):
+                    data = data.replace(search, replace, 1)
+                    content_replacements += 1
+                content.set_data(data)
+            return content_replacements
+            
+        page_replacements = 0
         contents = page.get_contents()
-        for index, content in enumerate(contents):
-            obj = content.get_object()
-            data = obj.get_data()
-            while (search in data):
-                data = data.replace(search, replace, 1)
-                page_replacements += 1
-            if (isinstance(obj, EncodedStreamObject)):
-                raise NotImplementedError("Modifying encoded (compressed) data streams is not supported. Uncompress input with qpdf's --qdf option should help.")
-                obj = DecodedStreamObject() # TODO: find out how to add this to output
-            obj.set_data(data)
-            contents[index] = obj
-
+        # NOTE: contents may be None, ContentStream, EncodedStreamObject, ArrayObject
+        if (isinstance(contents, pypdf.generic._data_structures.ArrayObject)):
+            for content in contents:
+                page_replacements += replace_in_content(content, search, replace)
+        elif (isinstance(contents, pypdf.generic._data_structures.ContentStream)):
+            page_replacements += replace_in_content(contents, search, replace)
+        else:
+            raise NotImplementedError(f"Cannot modify {type(contents)}.")
+        page.replace_contents(contents)
         if (page_replacements > 0):
-            total_replacements += page_replacements
             print(f"Replaced {page_replacements} occurrences on this page.")
+            total_replacements += page_replacements
         papersize = getattr(pypdf.PaperSize, args.papersize)
         # TODO: find out how to preserve original mediabox
         page.mediabox = RectangleObject((0, 0, papersize.width, papersize.height))
         writer.add_page(page)
     if (args.output):
         writer.write(args.output)
-        print(f"Replaced {total_replacements} occurrences in document.")
+        print(f"Replaced {total_replacements} occurrences in document {args.output}.")
