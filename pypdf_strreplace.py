@@ -7,14 +7,16 @@ from pypdf.generic import DictionaryObject, NameObject, RectangleObject
 from pypdf.constants import PageAttributes as PG
 from pypdf._cmap import build_char_map
 
+class CharMap:
+    def __init__(self, subtype, encoding, map, ft):
+        [setattr(self, k, v) for k,v in locals().items()]
+    @classmethod
+    def from_char_map(cls, subtype:str, halfspace:float, encoding:Union[str, Dict[int, str]], map:Dict[str, str], ft:DictionaryObject):
+        return cls(subtype, encoding, map, ft)
+
 # from https://github.com/py-pdf/pypdf/blob/27d0e99/pypdf/_page.py#L1546
 def get_char_maps(obj: Any, space_width: float = 200.0):
-    cmaps: Dict[
-        str,
-        Tuple[
-            str, float, Union[str, Dict[int, str]], Dict[str, str], DictionaryObject
-        ],
-    ] = {}
+    cmaps = {}
     objr = obj
     while NameObject(PG.RESOURCES) not in objr:
         # /Resources can be inherited sometimes so we look to parents
@@ -22,14 +24,14 @@ def get_char_maps(obj: Any, space_width: float = 200.0):
     resources_dict = cast(DictionaryObject, objr[PG.RESOURCES])
     if "/Font" in resources_dict:
         for f in cast(DictionaryObject, resources_dict["/Font"]):
-            cmaps[f] = build_char_map(f, space_width, obj)
+            cmaps[f] = CharMap.from_char_map(*build_char_map(f, space_width, obj))
     for cmap in cmaps.values():
         if (
-            ("/Encoding" in cmap[4] and cmap[4]["/Encoding"] == "/WinAnsiEncoding") or
-            (cmap[2] == "charmap") # NOTE: can also be a table byte → character
+            ("/Encoding" in cmap.ft and cmap.ft["/Encoding"] == "/WinAnsiEncoding") or
+            (cmap.encoding == "charmap") # NOTE: can also be a table byte → character
         ):
             print("WARNING: This tool assumes subsetting with a charmap or WinAnsiEncoding (cp1252).")
-    return {cmap[4]["/BaseFont"]:cmap[3] for cmap in cmaps.values()}
+    return {cmap.ft["/BaseFont"]:cmap for cmap in cmaps.values()}
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Replace text in a PDF file.')
@@ -61,19 +63,19 @@ if __name__ == "__main__":
         replace = None
         if (args.font and args.search and args.replace):
             charmap = cmaps[args.font]
-            if (charmap):
+            if (charmap.map):
                 # Subsetting is active. Prepare lookup function.
-                reverse_charmap = {v:k for k,v in charmap.items()}
+                reverse_charmap = {v:k for k,v in charmap.map.items()}
                 def full_to_subsetted(full):
                     missing = set([c for c in full if c not in reverse_charmap])
                     if (missing):
                         raise KeyError(f'These characters are not available in the selected font and cannot be used in replacements: {"".join(missing)}')
                     subsetted = ''.join([reverse_charmap[c] for c in full])
                     subsetted = subsetted.replace(r'(',r'\(').replace(r')',r'\)') # TODO: which other characters must be escaped? probably < and >
-                    return subsetted.encode('cp1252') # TODO: use original cmap[2] here
+                    return subsetted.encode('cp1252') # TODO: use charmap.encoding here?
             else:
                 # Subsetting is not active. Just encode the string.
-                full_to_subsetted = lambda full: full.encode('cp1252') # TODO: use original cmap[2] here
+                full_to_subsetted = lambda full: full.encode('cp1252') # TODO: use charmap.encoding here?
             search = full_to_subsetted(args.search)
             replace = full_to_subsetted(args.replace)
             if (args.debug_subsetting):
