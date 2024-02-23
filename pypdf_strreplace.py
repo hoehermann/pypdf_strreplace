@@ -6,21 +6,22 @@ import binascii
 import pypdf
 from typing import Any, Callable, Dict, Tuple, Union, cast
 from pypdf.generic import DictionaryObject, NameObject, RectangleObject, ContentStream
-from pypdf.generic._base import TextStringObject, ByteStringObject, FloatObject
+from pypdf.generic._base import TextStringObject, ByteStringObject, NumberObject, FloatObject
 from pypdf.constants import PageAttributes as PG
 from pypdf._cmap import build_char_map
 import pprint
 
 class CharMap:
-    def __init__(self, subtype, encoding, map, ft):
+    def __init__(self, subtype, halfspace, encoding, map, ft):
         [setattr(self, k, v) for k,v in locals().items()]
     @classmethod
     def from_char_map(cls, subtype:str, halfspace:float, encoding:Union[str, Dict[int, str]], map:Dict[str, str], ft:DictionaryObject):
-        return cls(subtype, encoding, map, ft)
+        return cls(subtype, halfspace, encoding, map, ft)
     def decode(self, text:Union[TextStringObject,ByteStringObject]):
         #print("Decoding", text.get_original_bytes(), "with this map:")
         #pprint.pprint(self.map)
         if (isinstance(text, TextStringObject) and self.encoding == "charmap"):
+            # decoding with ascii is a wild guess
             return "".join(text.get_original_bytes().decode('ascii').translate(str.maketrans(self.map)))
         elif (isinstance(text, ByteStringObject)):
             return "".join(text.decode(self.encoding).translate(str.maketrans(self.map)))
@@ -40,13 +41,6 @@ def get_char_maps(obj: Any, space_width: float = 200.0):
     if "/Font" in resources_dict:
         for font_id in cast(DictionaryObject, resources_dict["/Font"]):
             cmaps[font_id] = CharMap.from_char_map(*build_char_map(font_id, space_width, obj))
-    # for cmap in cmaps.values():
-    #     if (
-    #         ("/Encoding" in cmap.ft and cmap.ft["/Encoding"] == "/WinAnsiEncoding") or
-    #         (cmap.encoding == "charmap") # NOTE: can also be a table byte → character
-    #     ):
-    #         #print("WARNING: This tool assumes subsetting with a charmap or WinAnsiEncoding (cp1252).")
-    #         pass
     return cmaps
 
 class Context:
@@ -61,7 +55,7 @@ class PDFOperation:
         self.context = context
     @classmethod
     def from_tuple(cls, operands, operator, context:Context):
-        operator = operator.decode('ascii')
+        operator = operator.decode('ascii') # PDF operators are indeed ascii encoded
         classname = f"PDFOperation{operator}"
         if (classname in globals()):
             return globals()[classname](operands, context)
@@ -73,7 +67,7 @@ class PDFOperation:
         for op in self.operands:
             op.write_to_stream(stream)
             stream.write(b" ")
-        stream.write(self.operator.encode("ascii"))
+        stream.write(self.operator.encode("ascii")) # PDF operators are indeed ascii encoded
         stream.write(b"\n")
     def get_text_map(self, charmaps):
         return []
@@ -82,7 +76,7 @@ class PDFOperationTf(PDFOperation):
         super().__init__(operands, "Tf", None)
         context.font = operands[0]
 class PDFOperationTJ(PDFOperation):
-    def __init__(self, operands:list[list[Union[TextStringObject,FloatObject]]], context:Context):
+    def __init__(self, operands:list[list[Union[TextStringObject,ByteStringObject,NumberObject]]], context:Context):
         if (len(operands) != 1):
             raise ValueError(f"PDFOperationTJ expects one non-empty Array of Array")
         super().__init__(operands, "TJ", context.__copy__())
@@ -91,11 +85,15 @@ class PDFOperationTJ(PDFOperation):
     def get_text_map(self, charmaps):
         map = []
         for operand in self.operands[0]:
-            if (isinstance(operand, TextStringObject)):
+            if (isinstance(operand, NumberObject)):
+                if (operand < -charmaps[self.context.font].halfspace):
+                    # display big horizontal adjustment as space. total guess. works for the xelatex sample.
+                    map.append((operand, " "))
+            else:
                 map.append((operand, charmaps[self.context.font].decode(operand)))
         return map
 class PDFOperationTj(PDFOperation):
-    def __init__(self, operands:list[TextStringObject], context:Context):
+    def __init__(self, operands:list[Union[TextStringObject,ByteStringObject]], context:Context):
         if (len(operands) != 1):
             raise ValueError(f"PDFOperationTj expects one non-empty Array of TextStringObject")
         super().__init__(operands, "Tj", context.__copy__())
@@ -105,19 +103,18 @@ class PDFOperationTj(PDFOperation):
         return [(self.operands[0], charmaps[self.context.font].decode(self.operands[0]))]
 
 def analyze_content(content:ContentStream, charmaps):
-    #print(content.get_data())
+    print(content.get_data())
     #pprint.pprint(content.operations)
     context = Context()
     operations = [PDFOperation.from_tuple(ops, op, context) for ops, op in content.operations]
     #pprint.pprint(operations)
     text_maps = [op.get_text_map(charmaps) for op in operations]
     text_maps = [tm for tm in text_maps if tm]
-    for text_map in text_maps:
-        print("".join([t[1] for t in text_map]))
+    print("".join(["".join([t[1] for t in text_map]) for text_map in text_maps]))
     #pprint.pprint(texts)
-    #stream = io.BytesIO()
-    #[op.write_to_stream(stream) for op in operations]
-    #print(stream.getvalue())
+    stream = io.BytesIO()
+    [op.write_to_stream(stream) for op in operations]
+    print(stream.getvalue())
     #content.set_data(stream.getvalue())
 
 if __name__ == "__main__":
