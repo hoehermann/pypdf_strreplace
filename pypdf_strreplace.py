@@ -46,7 +46,7 @@ def get_char_maps(obj: Any, space_width: float = 200.0):
 class Context:
     def __init__(self, font:str = None):
         self.font = font
-    def __copy__(self):
+    def clone(self):
         return type(self)(self.font)
 class PDFOperation:
     def __init__(self, operands, operator, context:Context):
@@ -71,6 +71,21 @@ class PDFOperation:
         stream.write(b"\n")
     def get_text_map(self, charmaps):
         return []
+class PDFOperationTd(PDFOperation):
+    def __init__(self, operands, context:Context):
+        super().__init__(operands, "Td", None)
+    def __repr__(self):
+        return f"{self.operands} {self.operator}"
+    def get_text_map(self, charmaps):
+        map = []
+        tx, ty = self.operands
+        if (ty != 0):
+            # consider a vertical adjustment starting a new line
+            map.append((None, "\n"))
+        if (tx != 0):
+            # display horizontal adjustment as space. total guess. works for the xelatex sample.
+            map.append((None, " "))
+        return map
 class PDFOperationTf(PDFOperation):
     def __init__(self, operands, context:Context):
         super().__init__(operands, "Tf", None)
@@ -79,13 +94,13 @@ class PDFOperationTJ(PDFOperation):
     def __init__(self, operands:list[list[Union[TextStringObject,ByteStringObject,NumberObject]]], context:Context):
         if (len(operands) != 1):
             raise ValueError(f"PDFOperationTJ expects one non-empty Array of Array")
-        super().__init__(operands, "TJ", context.__copy__())
+        super().__init__(operands, "TJ", context.clone())
     def __repr__(self):
         return f"„{self.operands[0]}“ {self.operator}"
     def get_text_map(self, charmaps):
         map = []
         for operand in self.operands[0]:
-            if (isinstance(operand, NumberObject)):
+            if (isinstance(operand, NumberObject) or isinstance(operand, FloatObject)):
                 if (operand < -charmaps[self.context.font].halfspace):
                     # display big horizontal adjustment as space. total guess. works for the xelatex sample.
                     map.append((operand, " "))
@@ -96,14 +111,14 @@ class PDFOperationTj(PDFOperation):
     def __init__(self, operands:list[Union[TextStringObject,ByteStringObject]], context:Context):
         if (len(operands) != 1):
             raise ValueError(f"PDFOperationTj expects one non-empty Array of TextStringObject")
-        super().__init__(operands, "Tj", context.__copy__())
+        super().__init__(operands, "Tj", context.clone())
     def __repr__(self):
         return f"„{self.operands[0]}“ {self.operator}"
     def get_text_map(self, charmaps):
         return [(self.operands[0], charmaps[self.context.font].decode(self.operands[0]))]
 
 def analyze_content(content:ContentStream, charmaps):
-    print(content.get_data())
+    #print(content.get_data())
     #pprint.pprint(content.operations)
     context = Context()
     operations = [PDFOperation.from_tuple(ops, op, context) for ops, op in content.operations]
@@ -112,9 +127,9 @@ def analyze_content(content:ContentStream, charmaps):
     text_maps = [tm for tm in text_maps if tm]
     print("".join(["".join([t[1] for t in text_map]) for text_map in text_maps]))
     #pprint.pprint(texts)
-    stream = io.BytesIO()
-    [op.write_to_stream(stream) for op in operations]
-    print(stream.getvalue())
+    # stream = io.BytesIO()
+    # [op.write_to_stream(stream) for op in operations]
+    # print(stream.getvalue())
     #content.set_data(stream.getvalue())
 
 if __name__ == "__main__":
