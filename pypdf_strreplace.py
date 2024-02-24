@@ -26,15 +26,16 @@ class CharMap:
         elif (isinstance(text, ByteStringObject)):
             return "".join(text.decode(self.encoding).translate(str.maketrans(self.map)))
         elif (isinstance(self.encoding, dict)):
-            return str(text) # TODO: find out if pypdf applies the encoding dict automatically or if all my samples use 1:1 mappings
+            return str(text) # it looks like pypdf applies the encoding dict automatically
         else:
             raise NotImplementedError(f"Cannot decode „{text}“ with this {type(self.encoding)} encoding: {self.encoding}")
     def encode(self, text, reference):
-        #print("Encoding to conform to", type(reference))
-        #print(reference)
+        #print(f"Encoding „{text}“ to conform to", type(reference))
         if (isinstance(self.encoding, dict)):
-            map = {v:k for k,v in self.encoding.items()}
-            return ByteStringObject(bytes([map[c] for c in text]))
+            t = TextStringObject(text)
+            t.autodetect_pdfdocencoding = reference.autodetect_pdfdocencoding
+            t.autodetect_utf16 = reference.autodetect_utf16
+            return t
         elif (self.encoding == "charmap"):
             map = {v:k for k,v in self.map.items()}
             return ByteStringObject(text.translate(str.maketrans(map)).encode('ascii')) # encoding with ascii is a wild guess
@@ -204,7 +205,8 @@ def replace_text(content:ContentStream, charmaps, needle, replacement):
         #print(end)
         if (start and end):
             operations = replace_operations(operations, start, end, replacement, charmaps)
-        break # TODO: make it mork for more than one match per page
+        else:
+            break
     #pprint.pprint(operations)
     #text_maps = [tm for tm in text_maps if tm]
     #print("".join(["".join([t.text for t in text_map if t.text]) for text_map in text_maps]))
