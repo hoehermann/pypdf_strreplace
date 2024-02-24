@@ -39,6 +39,9 @@ class CharMap:
         elif (self.encoding == "charmap"):
             map = {v:k for k,v in self.map.items()}
             return ByteStringObject(text.translate(str.maketrans(map)).encode('ascii')) # encoding with ascii is a wild guess
+        elif (isinstance(reference, ByteStringObject)):
+            map = {v:k for k,v in self.map.items() if not isinstance(v,str) or len(v) == 1}
+            return ByteStringObject(text.translate(str.maketrans(map)).encode(self.encoding))
         else:
             raise NotImplementedError(f"Cannot encode this {type(self.encoding)} encoding: {self.encoding}")
 
@@ -200,13 +203,17 @@ def replace_text(content:ContentStream, charmaps, needle, replacement):
     #pprint.pprint(operations)
     while (True):
         text_maps = [op.get_text_map(charmaps) for op in operations]
-        start, end = search_in_mappings(text_maps, needle)
-        #print(start)
-        #print(end)
-        if (start and end):
-            operations = replace_operations(operations, start, end, replacement, charmaps)
-        else:
+        if (needle is None or replacement is None):
+            print("".join(["".join([t.text for t in text_map if t.text]) for text_map in text_maps]))
             break
+        else:
+            start, end = search_in_mappings(text_maps, needle)
+            #print(start)
+            #print(end)
+            if (start and end):
+                operations = replace_operations(operations, start, end, replacement, charmaps)
+            else:
+                break
     #pprint.pprint(operations)
     #text_maps = [tm for tm in text_maps if tm]
     #print("".join(["".join([t.text for t in text_map if t.text]) for text_map in text_maps]))
@@ -220,10 +227,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Replace text in a PDF file.')
     parser.add_argument('--input', type=str, required=True)
     parser.add_argument('--output', type=str)
-    parser.add_argument('--search', type=str, required=True)
-    parser.add_argument('--replace', type=str, required=True)
+    parser.add_argument('--search', type=str)
+    parser.add_argument('--replace', type=str)
     parser.add_argument('--papersize', type=str)
     args = parser.parse_args()
+
+    if (args.search is None or args.replace is None):
+        print("These are the lines this tool might be able to handle:")
+
     total_replacements = 0
     reader = pypdf.PdfReader(args.input)
     writer = pypdf.PdfWriter()
