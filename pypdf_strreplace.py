@@ -46,7 +46,7 @@ class CharMap:
             raise NotImplementedError(f"Cannot encode this {type(self.encoding)} encoding: {self.encoding}")
 
 # from https://github.com/py-pdf/pypdf/blob/27d0e99/pypdf/_page.py#L1546
-def get_char_maps(obj: Any, space_width: float = 200.0):
+def get_char_maps(obj: Any, space_width: float = 200.0) -> Dict[str, CharMap]:
     cmaps = {}
     objr = obj
     while NameObject(PG.RESOURCES) not in objr:
@@ -205,7 +205,8 @@ def replace_operations(operations:list[PDFOperation], start:MappedOperand, end:M
             keep = True
     return out
 
-def replace_text(content:ContentStream, charmaps, needle, replacement):
+def replace_text(content:ContentStream, charmaps:Dict[str,CharMap], needle:str, replacement:str) -> int:
+    replacement_count = 0
     #print(content.get_data())
     #pprint.pprint(content.operations)
     context = Context()
@@ -223,6 +224,7 @@ def replace_text(content:ContentStream, charmaps, needle, replacement):
             #print("END:", end)
             if (start and end):
                 operations = replace_operations(operations, start, end, replacement, charmaps)
+                replacement_count +=1
             else:
                 break
     #pprint.pprint(operations)
@@ -230,6 +232,7 @@ def replace_text(content:ContentStream, charmaps, needle, replacement):
     [op.write_to_stream(stream) for op in operations]
     # print(stream.getvalue())
     content.set_data(stream.getvalue())
+    return replacement_count
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Replace text in a PDF file.')
@@ -256,9 +259,9 @@ if __name__ == "__main__":
         # NOTE: contents may be None, ContentStream, EncodedStreamObject, ArrayObject
         if (isinstance(contents, pypdf.generic._data_structures.ArrayObject)):
             for content in contents:
-                replace_text(content, charmaps, args.search, args.replace)
+                total_replacements += replace_text(content, charmaps, args.search, args.replace)
         elif (isinstance(contents, pypdf.generic._data_structures.ContentStream)):
-            replace_text(contents, charmaps, args.search, args.replace)
+            total_replacements += replace_text(contents, charmaps, args.search, args.replace)
         else:
             raise NotImplementedError(f"Cannot modify {type(contents)}.")
         page.replace_contents(contents)
@@ -267,6 +270,8 @@ if __name__ == "__main__":
             papersize = getattr(pypdf.PaperSize, args.papersize)
             page.mediabox = RectangleObject((0, 0, papersize.width, papersize.height))
         writer.add_page(page)
+    
+    print(f"Replaced {total_replacements} occurrences.")
 
     if (args.output):
         writer.write(args.output)
