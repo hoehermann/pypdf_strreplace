@@ -128,11 +128,18 @@ class PDFOperationTJ(PDFOperation):
                 map.append(MappedOperand(self, operand, charmaps[self.context.font].decode(operand)))
         return map
     def replace_text(self, text, charmaps, start, end):
-        start = self.operands[0].index(start)
-        end = self.operands[0].index(end)
-        pre = self.operands[0][:start]
-        post = self.operands[0][end+1:]
-        mid = [charmaps[self.context.font].encode(text, self.operands[0][start])]
+        # have a prefix with everything up to the beginning of the replacement
+        pre = []
+        if (start is not None):
+            start = self.operands[0].index(start)
+            pre = self.operands[0][:start]
+        # have a postfix with everything after the end of the replacement
+        post = []
+        if (end is not None):
+            end = self.operands[0].index(end)
+            post = self.operands[0][end+1:]
+        sample = next((op for op in self.operands[0] if isinstance(op, TextStringObject) or isinstance(op, ByteStringObject)))
+        mid = [charmaps[self.context.font].encode(text, sample)]
         self.operands[0] = ArrayObject(pre+mid+post)
 class PDFOperationTj(PDFOperation):
     def __init__(self, operands:list[Union[TextStringObject,ByteStringObject]], context:Context):
@@ -186,13 +193,16 @@ def replace_operations(operations:list[PDFOperation], start:MappedOperand, end:M
                 #print("start also is the end")
                 replacement += end.text
                 keep = True
-            operation.replace_text(replacement, charmaps, start.operand, end.operand)
+            end_operand = end.operand
+            if (operation != end.operation):
+                end_operand = None
+            operation.replace_text(replacement, charmaps, start.operand, end_operand)
         if (operation == end.operation and start.operation != end.operation):
-            raise NotImplementedError("Replacing across multiple PDF text operations is not implemented.")
-            # print("found the end")
-            # keep = True
-            # operation.replace_text(replacement+end.text, charmaps)
-            # out.append(operation)
+            #print("found the end")
+            replacement = "" # text has already been fed into the start operation
+            operation.replace_text(replacement, charmaps, None, end.operand)
+            out.append(operation)
+            keep = True
     return out
 
 def replace_text(content:ContentStream, charmaps, needle, replacement):
@@ -203,21 +213,19 @@ def replace_text(content:ContentStream, charmaps, needle, replacement):
     #pprint.pprint(operations)
     while (True):
         text_maps = [op.get_text_map(charmaps) for op in operations]
+        #pprint.pprint(text_maps)
         if (needle is None or replacement is None):
             print("".join(["".join([t.text for t in text_map if t.text]) for text_map in text_maps]))
             break
         else:
             start, end = search_in_mappings(text_maps, needle)
-            #print(start)
-            #print(end)
+            #print("START:", start)
+            #print("END:", end)
             if (start and end):
                 operations = replace_operations(operations, start, end, replacement, charmaps)
             else:
                 break
     #pprint.pprint(operations)
-    #text_maps = [tm for tm in text_maps if tm]
-    #print("".join(["".join([t.text for t in text_map if t.text]) for text_map in text_maps]))
-    #pprint.pprint(texts)
     stream = io.BytesIO()
     [op.write_to_stream(stream) for op in operations]
     # print(stream.getvalue())
