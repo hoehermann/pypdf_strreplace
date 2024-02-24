@@ -1,0 +1,22 @@
+cd "$(dirname "$0")"/..
+
+do_test() {
+    tmpdir="$(mktemp -d)"
+    python3 pypdf_strreplace.py --output "$tmpdir"/"$1".pdf --input pdfs/"$2".pdf --search "$3" --replace "$4"
+    convert -density 150 "$tmpdir"/"$1".pdf "$tmpdir"/"$1".tiff # -compress LZW
+    compare test/"$1".tiff "$tmpdir"/"$1".tiff -metric AE "$tmpdir"/compare-result.pgm
+    echo ""
+    rm -r "$tmpdir"
+}
+
+# simple tests (affect only one operand in one operation)
+do_test "inkscape_simple" "Inkscape" "Inkscape 1.1.2"  "pleasure"
+do_test "libreoffice_simple" "LibreOffice" "7.3.2" "infinite"
+do_test "dmytryo_simple" "Dmytro" "PDF" "DOC"
+do_test "xelatex_simple" "xelatex" "symbol" "character"
+
+# less simple test (affect one operation, but multiple operands)
+do_test "inkscape_multiple_operands" "Inkscape" "created" "made"
+
+# replace multiple occurrences
+do_test "dmytryo_multiple_occurrences" "Dmytro" "text" "fuzz"
