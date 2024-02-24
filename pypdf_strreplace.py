@@ -220,7 +220,7 @@ if __name__ == "__main__":
     parser.add_argument('--output', type=str)
     parser.add_argument('--search', type=str, required=True)
     parser.add_argument('--replace', type=str, required=True)
-    parser.add_argument('--papersize', type=str, default="A4")
+    parser.add_argument('--papersize', type=str)
     args = parser.parse_args()
     total_replacements = 0
     reader = pypdf.PdfReader(args.input)
@@ -242,9 +242,9 @@ if __name__ == "__main__":
             raise NotImplementedError(f"Cannot modify {type(contents)}.")
         page.replace_contents(contents)
 
-        papersize = getattr(pypdf.PaperSize, args.papersize)
-        # TODO: find out how to preserve original mediabox
-        page.mediabox = RectangleObject((0, 0, papersize.width, papersize.height))
+        if (args.papersize):
+            papersize = getattr(pypdf.PaperSize, args.papersize)
+            page.mediabox = RectangleObject((0, 0, papersize.width, papersize.height))
         writer.add_page(page)
 
     if (args.output):
