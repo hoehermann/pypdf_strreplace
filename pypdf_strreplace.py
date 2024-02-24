@@ -43,6 +43,11 @@ def get_char_maps(obj: Any, space_width: float = 200.0):
             cmaps[font_id] = CharMap.from_char_map(*build_char_map(font_id, space_width, obj))
     return cmaps
 
+class MappedOperand:
+    def __init__(self, operation, operand, text):
+        [setattr(self, k, v) for k,v in locals().items()]
+    def __repr__(self):
+        return f"{str(self.operation.operator)} → „{self.text}“"
 class Context:
     def __init__(self, font:str = None):
         self.font = font
@@ -70,7 +75,7 @@ class PDFOperation:
         stream.write(self.operator.encode("ascii")) # PDF operators are indeed ascii encoded
         stream.write(b"\n")
     def get_text_map(self, charmaps):
-        return []
+        return [MappedOperand(self, None, None)]
 class PDFOperationTd(PDFOperation):
     def __init__(self, operands, context:Context):
         super().__init__(operands, "Td", None)
@@ -81,10 +86,10 @@ class PDFOperationTd(PDFOperation):
         tx, ty = self.operands
         if (ty != 0):
             # consider a vertical adjustment starting a new line
-            map.append((None, "\n"))
-        if (tx != 0):
+            map.append(MappedOperand(self, None, "\n"))
+        elif (tx != 0):
             # display horizontal adjustment as space. total guess. works for the xelatex sample.
-            map.append((None, " "))
+            map.append(MappedOperand(self, None, " "))
         return map
 class PDFOperationTf(PDFOperation):
     def __init__(self, operands, context:Context):
@@ -103,9 +108,9 @@ class PDFOperationTJ(PDFOperation):
             if (isinstance(operand, NumberObject) or isinstance(operand, FloatObject)):
                 if (operand < -charmaps[self.context.font].halfspace):
                     # display big horizontal adjustment as space. total guess. works for the xelatex sample.
-                    map.append((operand, " "))
+                    map.append(MappedOperand(self, operand, " "))
             else:
-                map.append((operand, charmaps[self.context.font].decode(operand)))
+                map.append(MappedOperand(self, operand, charmaps[self.context.font].decode(operand)))
         return map
 class PDFOperationTj(PDFOperation):
     def __init__(self, operands:list[Union[TextStringObject,ByteStringObject]], context:Context):
@@ -115,17 +120,45 @@ class PDFOperationTj(PDFOperation):
     def __repr__(self):
         return f"„{self.operands[0]}“ {self.operator}"
     def get_text_map(self, charmaps):
-        return [(self.operands[0], charmaps[self.context.font].decode(self.operands[0]))]
+        return [MappedOperand(self, self.operands[0], charmaps[self.context.font].decode(self.operands[0]))]
 
-def analyze_content(content:ContentStream, charmaps):
+def search_in_mappings(text_maps, needle):
+    #print([[t.text for t in text_map if t.text] for text_map in text_maps])
+    needle_index = 0
+    start =  None
+    end = None
+    for operation_level in text_maps:
+        for mapped_operand in operation_level:
+            if (mapped_operand.text):
+                for haystack_index, c in enumerate(mapped_operand.text):
+                    if (c == needle[needle_index]):
+                        #print(f"Found „{c}“, needle_index now at {needle_index}.")
+                        if (needle_index == 0):
+                            start = MappedOperand(mapped_operand.operation, mapped_operand.operand, mapped_operand.text[:haystack_index])
+                        needle_index += 1
+                        if (needle_index == len(needle)):
+                            end = MappedOperand(mapped_operand.operation, mapped_operand.operand, mapped_operand.text[haystack_index+1:])
+                            break
+                    else:
+                        needle_index = 0
+            if (needle_index == len(needle)):
+                break
+        if (needle_index == len(needle)):
+            break
+    return (start, end)
+
+def search_text(content:ContentStream, charmaps, needle):
     #print(content.get_data())
     #pprint.pprint(content.operations)
     context = Context()
     operations = [PDFOperation.from_tuple(ops, op, context) for ops, op in content.operations]
     #pprint.pprint(operations)
     text_maps = [op.get_text_map(charmaps) for op in operations]
-    text_maps = [tm for tm in text_maps if tm]
-    print("".join(["".join([t[1] for t in text_map]) for text_map in text_maps]))
+    start, end = search_in_mappings(text_maps, needle)
+    print(start)
+    print(end)
+    #text_maps = [tm for tm in text_maps if tm]
+    #print("".join(["".join([t.text for t in text_map if t.text]) for text_map in text_maps]))
     #pprint.pprint(texts)
     # stream = io.BytesIO()
     # [op.write_to_stream(stream) for op in operations]
@@ -136,6 +169,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Replace text in a PDF file.')
     parser.add_argument('--input', type=str, required=True)
     parser.add_argument('--output', type=str)
+    parser.add_argument('--search', type=str, required=True)
     parser.add_argument('--papersize', type=str, default="A4")
     args = parser.parse_args()
     total_replacements = 0
@@ -151,9 +185,9 @@ if __name__ == "__main__":
         # NOTE: contents may be None, ContentStream, EncodedStreamObject, ArrayObject
         if (isinstance(contents, pypdf.generic._data_structures.ArrayObject)):
             for content in contents:
-                analyze_content(content, charmaps)
+                search_text(content, charmaps, args.search)
         elif (isinstance(contents, pypdf.generic._data_structures.ContentStream)):
-            analyze_content(contents, charmaps)
+            search_text(contents, charmaps, args.search)
         else:
             raise NotImplementedError(f"Cannot modify {type(contents)}.")
         page.replace_contents(contents)
