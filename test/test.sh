@@ -18,5 +18,11 @@ do_test "xelatex_simple" "xelatex" "symbol" "character"
 # less simple test (affect one operation, but multiple operands)
 do_test "inkscape_multiple_operands" "Inkscape" "created" "made"
 
+# even less simple test (affect multiple operations)
+do_test "xelatex_multiple_operations" "xelatex" "n α symbo" "ny content meaningfu"
+
 # replace multiple occurrences
 do_test "dmytryo_multiple_occurrences" "Dmytro" "text" "fuzz"
+
+# this shows how horizontal positioning can be off
+# python3 pypdf_strreplace.py --input pdfs/xelatex.pdf --search "mes wit" --replace "ws can was" --output out.pdf

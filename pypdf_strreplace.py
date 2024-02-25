@@ -138,8 +138,10 @@ class PDFOperationTJ(PDFOperation):
         if (end is not None):
             end = self.operands[0].index(end)
             post = self.operands[0][end+1:]
-        sample = next((op for op in self.operands[0] if isinstance(op, TextStringObject) or isinstance(op, ByteStringObject)))
-        mid = [charmaps[self.context.font].encode(text, sample)]
+        mid = []
+        if (text):
+            sample = next((op for op in self.operands[0] if isinstance(op, TextStringObject) or isinstance(op, ByteStringObject)))
+            mid = [charmaps[self.context.font].encode(text, sample)]
         self.operands[0] = ArrayObject(pre+mid+post)
 class PDFOperationTj(PDFOperation):
     def __init__(self, operands:list[Union[TextStringObject,ByteStringObject]], context:Context):
@@ -181,10 +183,15 @@ def search_in_mappings(text_maps, needle):
 
 def replace_operations(operations:list[PDFOperation], start:MappedOperand, end:MappedOperand, replacement, charmaps):
     out = []
+    tds = []
     keep = True
     for operation in operations:
         if (keep):
             out.append(operation)
+        elif (operation.operator == "Td"):
+            # relative text positioning operators may affect future lines
+            # do not drop them, but move them to after the end instead
+            tds.append(operation)
         if (operation == start.operation):
             #print("found the start")
             keep = False
@@ -197,11 +204,14 @@ def replace_operations(operations:list[PDFOperation], start:MappedOperand, end:M
             if (operation != end.operation):
                 end_operand = None
             operation.replace_text(replacement, charmaps, start.operand, end_operand)
+            if (operation == end.operation):
+                out.extend(tds)
         if (operation == end.operation and start.operation != end.operation):
             #print("found the end")
-            replacement = "" # text has already been fed into the start operation
+            replacement = end.text # text has already been fed into the start operation, but not the postfix
             operation.replace_text(replacement, charmaps, None, end.operand)
             out.append(operation)
+            out.extend(tds)
             keep = True
     return out
 
@@ -212,6 +222,7 @@ def replace_text(content:ContentStream, charmaps:Dict[str,CharMap], needle:str, 
     context = Context()
     operations = [PDFOperation.from_tuple(ops, op, context) for ops, op in content.operations]
     #pprint.pprint(operations)
+    #print("----------")
     while (True):
         text_maps = [op.get_text_map(charmaps) for op in operations]
         #pprint.pprint(text_maps)
@@ -227,6 +238,7 @@ def replace_text(content:ContentStream, charmaps:Dict[str,CharMap], needle:str, 
                 replacement_count +=1
             else:
                 break
+    #print("----------")
     #pprint.pprint(operations)
     stream = io.BytesIO()
     [op.write_to_stream(stream) for op in operations]
