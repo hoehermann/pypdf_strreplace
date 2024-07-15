@@ -11,6 +11,15 @@ from pypdf.constants import PageAttributes as PG
 from pypdf._cmap import build_char_map
 import pprint
 
+class ExceptionalTranslator:
+    def __init__(self, map):
+        self.trans = str.maketrans(map)
+    def __getitem__(self, key):
+        if key not in self.trans.keys():
+            error_message = f"Replacement character »{chr(key)}« (ordinal {key}) is not available in this document." # error message on separate line to avoid confusion with the acutal string „key“
+            raise ValueError(error_message)
+        self.trans.__getitem__(key)
+
 class CharMap:
     def __init__(self, subtype, halfspace, encoding, map, ft):
         [setattr(self, k, v) for k,v in locals().items()]
@@ -38,10 +47,10 @@ class CharMap:
             return t
         elif (self.encoding == "charmap"):
             map = {v:k for k,v in self.map.items()}
-            return ByteStringObject(text.translate(str.maketrans(map)).encode('ascii')) # encoding with ascii is a wild guess
+            return ByteStringObject(text.translate(ExceptionalTranslator(map)).encode('ascii')) # encoding with ascii is a wild guess
         elif (isinstance(reference, ByteStringObject)):
             map = {v:k for k,v in self.map.items() if not isinstance(v,str) or len(v) == 1}
-            return ByteStringObject(text.translate(str.maketrans(map)).encode(self.encoding))
+            return ByteStringObject(text.translate(str.maketrans(map)).encode(self.encoding)) # TODO: use ExceptionalTranslator here, too?
         else:
             raise NotImplementedError(f"Cannot encode this {type(self.encoding)} encoding: {self.encoding}")
 
