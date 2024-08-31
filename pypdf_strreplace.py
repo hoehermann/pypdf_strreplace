@@ -34,10 +34,12 @@ class CharMap:
         elif (isinstance(text, TextStringObject) and self.encoding == "charmap"):
             # decoding with ascii is a wild guess
             return "".join(text.get_original_bytes().decode('ascii').translate(str.maketrans(self.map)))
+        elif (isinstance(text, TextStringObject) and isinstance(self.encoding, str) and self.map):
+            return "".join(text.get_original_bytes().decode(self.encoding).translate(str.maketrans(self.map)))
         elif (isinstance(text, ByteStringObject)):
             return "".join(text.decode(self.encoding).translate(str.maketrans(self.map)))
         else:
-            raise NotImplementedError(f"Cannot decode „{text}“ with this {type(self.encoding)} encoding: {self.encoding}")
+            raise NotImplementedError(f"Cannot decode {type(text)} „{text}“ with this {type(self.encoding)} encoding: {self.encoding}")
     def encode(self, text, reference):
         #print(f"Encoding „{text}“ to conform to", type(reference))
         if (isinstance(self.encoding, dict)):
