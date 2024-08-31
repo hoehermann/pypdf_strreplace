@@ -29,13 +29,13 @@ class CharMap:
     def decode(self, text:Union[TextStringObject,ByteStringObject]):
         #print("Decoding", text.get_original_bytes(), "with this map:")
         #pprint.pprint(self.map)
-        if (isinstance(text, TextStringObject) and self.encoding == "charmap"):
+        if (isinstance(self.encoding, dict)):
+            return str(text) # it looks like pypdf applies the encoding dict automatically
+        elif (isinstance(text, TextStringObject) and self.encoding == "charmap"):
             # decoding with ascii is a wild guess
             return "".join(text.get_original_bytes().decode('ascii').translate(str.maketrans(self.map)))
         elif (isinstance(text, ByteStringObject)):
             return "".join(text.decode(self.encoding).translate(str.maketrans(self.map)))
-        elif (isinstance(self.encoding, dict)):
-            return str(text) # it looks like pypdf applies the encoding dict automatically
         else:
             raise NotImplementedError(f"Cannot decode „{text}“ with this {type(self.encoding)} encoding: {self.encoding}")
     def encode(self, text, reference):
