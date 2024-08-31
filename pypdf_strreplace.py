@@ -236,6 +236,7 @@ def replace_text(content:ContentStream, charmaps:Dict[str,CharMap], needle:str, 
         text_maps = [op.get_text_map(charmaps) for op in operations]
         #pprint.pprint(text_maps)
         if (needle is None or replacement is None):
+            # extraction mode – just print the text
             print("".join(["".join([t.text for t in text_map if t.text]) for text_map in text_maps]))
             break
         else:
@@ -264,8 +265,7 @@ if __name__ == "__main__":
     parser.add_argument('--papersize', type=str)
     args = parser.parse_args()
 
-    if (args.search is None or args.replace is None):
-        print("These are the lines this tool might be able to handle:")
+    just_print = args.search is None or args.replace is None
 
     total_replacements = 0
     reader = pypdf.PdfReader(args.input)
@@ -275,6 +275,9 @@ if __name__ == "__main__":
         #print(f"Processing page {page_index+1}…")
 
         charmaps = get_char_maps(page)
+        if (just_print):
+            print(f"# These fonts are referenced on page {page_index+1}: {', '.join([cm.ft['/BaseFont'] for cm in charmaps.values()])}")
+            print("# These are the lines this tool might be able to handle:")
             
         contents = page.get_contents()
         # NOTE: contents may be None, ContentStream, EncodedStreamObject, ArrayObject
@@ -292,7 +295,8 @@ if __name__ == "__main__":
             page.mediabox = RectangleObject((0, 0, papersize.width, papersize.height))
         writer.add_page(page)
     
-    print(f"Replaced {total_replacements} occurrences.")
+    if (not just_print):
+        print(f"Replaced {total_replacements} occurrences.")
 
     if (args.output):
         writer.write(args.output)
