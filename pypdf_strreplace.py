@@ -258,6 +258,14 @@ def replace_text(content:ContentStream, charmaps:Dict[str,CharMap], needle:str, 
     content.set_data(stream.getvalue())
     return replacement_count
 
+def append_to_grid(content, grid):
+    context = Context()
+    operations = [PDFOperation.from_tuple(ops, op, context) for ops, op in content.operations]
+    offset = grid.GetNumberRows()
+    grid.AppendRows(len(operations))
+    for index, operation in enumerate(operations):
+        grid.SetCellValue(index+offset, 0, str(operation))
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Replace text in a PDF file.')
     parser.add_argument('--input', type=str, required=True)
@@ -265,40 +273,65 @@ if __name__ == "__main__":
     parser.add_argument('--search', type=str)
     parser.add_argument('--replace', type=str)
     parser.add_argument('--papersize', type=str)
+    parser.add_argument('--gui', action='store_true')
     args = parser.parse_args()
-
-    just_print = args.search is None or args.replace is None
-
-    total_replacements = 0
-    reader = pypdf.PdfReader(args.input)
-    writer = pypdf.PdfWriter()
-
-    for page_index, page in enumerate(reader.pages):
-        #print(f"Processing page {page_index+1}…")
-
-        charmaps = get_char_maps(page)
-        if (just_print):
-            print(f"# These fonts are referenced on page {page_index+1}: {', '.join([cm.ft['/BaseFont'] for cm in charmaps.values()])}")
-            print("# These are the lines this tool might be able to handle:")
-            
-        contents = page.get_contents()
-        # NOTE: contents may be None, ContentStream, EncodedStreamObject, ArrayObject
-        if (isinstance(contents, pypdf.generic._data_structures.ArrayObject)):
-            for content in contents:
-                total_replacements += replace_text(content, charmaps, args.search, args.replace)
-        elif (isinstance(contents, pypdf.generic._data_structures.ContentStream)):
-            total_replacements += replace_text(contents, charmaps, args.search, args.replace)
-        else:
-            raise NotImplementedError(f"Cannot modify {type(contents)}.")
-        page.replace_contents(contents)
-
-        if (args.papersize):
-            papersize = getattr(pypdf.PaperSize, args.papersize)
-            page.mediabox = RectangleObject((0, 0, papersize.width, papersize.height))
-        writer.add_page(page)
     
-    if (not just_print):
-        print(f"Replaced {total_replacements} occurrences.")
+    if (args.gui):
+        import wx
+        from gui import Main
 
-    if (args.output):
-        writer.write(args.output)
+        app = wx.App(False)
+        frame = Main(parent=None)
+
+        reader = pypdf.PdfReader(args.input)
+        for page_index, page in enumerate(reader.pages):
+            charmaps = get_char_maps(page)
+            contents = page.get_contents()
+            # NOTE: contents may be None, ContentStream, EncodedStreamObject, ArrayObject
+            if (isinstance(contents, pypdf.generic._data_structures.ArrayObject)):
+                for content in contents:
+                    append_to_grid(content, frame.m_grid)
+            elif (isinstance(contents, pypdf.generic._data_structures.ContentStream)):
+                append_to_grid(contents, frame.m_grid)
+            else:
+                raise NotImplementedError(f"Handling content of type {type(contents)} is not implemented.")
+
+        frame.Show()
+        app.MainLoop()
+        
+    else:
+        just_print = args.search is None or args.replace is None
+
+        total_replacements = 0
+        reader = pypdf.PdfReader(args.input)
+        writer = pypdf.PdfWriter()
+
+        for page_index, page in enumerate(reader.pages):
+            #print(f"Processing page {page_index+1}…")
+
+            charmaps = get_char_maps(page)
+            if (just_print):
+                print(f"# These fonts are referenced on page {page_index+1}: {', '.join([cm.ft['/BaseFont'] for cm in charmaps.values()])}")
+                print("# These are the lines this tool might be able to handle:")
+                
+            contents = page.get_contents()
+            # NOTE: contents may be None, ContentStream, EncodedStreamObject, ArrayObject
+            if (isinstance(contents, pypdf.generic._data_structures.ArrayObject)):
+                for content in contents:
+                    total_replacements += replace_text(content, charmaps, args.search, args.replace)
+            elif (isinstance(contents, pypdf.generic._data_structures.ContentStream)):
+                total_replacements += replace_text(contents, charmaps, args.search, args.replace)
+            else:
+                raise NotImplementedError(f"Cannot modify {type(contents)}.")
+            page.replace_contents(contents)
+
+            if (args.papersize):
+                papersize = getattr(pypdf.PaperSize, args.papersize)
+                page.mediabox = RectangleObject((0, 0, papersize.width, papersize.height))
+            writer.add_page(page)
+        
+        if (not just_print):
+            print(f"Replaced {total_replacements} occurrences.")
+
+        if (args.output):
+            writer.write(args.output)
