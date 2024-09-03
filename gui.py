@@ -9,7 +9,7 @@
 
 import wx
 import wx.xrc
-import wx.grid
+import wx.dataview
 
 ###########################################################################
 ## Class Main
@@ -24,32 +24,9 @@ class Main ( wx.Frame ):
 
         bSizer1 = wx.BoxSizer( wx.VERTICAL )
 
-        self.m_grid = wx.grid.Grid( self, wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, 0 )
+        self.m_treeList = wx.dataview.TreeListCtrl( self, wx.ID_ANY, wx.DefaultPosition, wx.DefaultSize, wx.dataview.TL_DEFAULT_STYLE )
 
-        # Grid
-        self.m_grid.CreateGrid( 0, 2 )
-        self.m_grid.EnableEditing( False )
-        self.m_grid.EnableGridLines( True )
-        self.m_grid.EnableDragGridSize( True )
-        self.m_grid.SetMargins( 0, 0 )
-
-        # Columns
-        self.m_grid.AutoSizeColumns()
-        self.m_grid.EnableDragColMove( False )
-        self.m_grid.EnableDragColSize( True )
-        self.m_grid.SetColLabelValue( 0, u"Operation" )
-        self.m_grid.SetColLabelValue( 1, u"Text" )
-        self.m_grid.SetColLabelAlignment( wx.ALIGN_CENTER, wx.ALIGN_CENTER )
-
-        # Rows
-        self.m_grid.EnableDragRowSize( True )
-        self.m_grid.SetRowLabelAlignment( wx.ALIGN_CENTER, wx.ALIGN_CENTER )
-
-        # Label Appearance
-
-        # Cell Defaults
-        self.m_grid.SetDefaultCellAlignment( wx.ALIGN_LEFT, wx.ALIGN_TOP )
-        bSizer1.Add( self.m_grid, 1, wx.ALL|wx.EXPAND, 0 )
+        bSizer1.Add( self.m_treeList, 1, wx.EXPAND |wx.ALL, 0 )
 
 
         self.SetSizer( bSizer1 )
