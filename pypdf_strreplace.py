@@ -76,27 +76,27 @@ class MappedOperand:
     def __repr__(self):
         return f"{str(self.operation.operator)} → „{self.text}“"
 class Context:
-    def __init__(self, font:str = None):
+    def __init__(self, charmaps:Dict[str,CharMap], font:str = None):
         self.font = font
-    def clone(self):
-        return type(self)(self.font)
+        self.charmaps = charmaps
+    def clone_shared_charmaps(self):
+        return type(self)(self.charmaps, self.font)
 class PDFOperation:
-    def __init__(self, operands, operator, context:Context, charmaps:Dict[str,CharMap]):
+    def __init__(self, operands, operator, context:Context):
         self.operands = operands
         self.operator = operator
         self.context = context
-        self.charmaps = charmaps
         self.text_map = {}
     @classmethod
-    def from_tuple(cls, operands, operator, context:Context, charmaps:Dict[str,CharMap]):
+    def from_tuple(cls, operands, operator, context:Context):
         operator = operator.decode('ascii') # PDF operators are indeed ascii encoded
         classname = f"PDFOperation{operator}"
         if (classname in globals()):
             # create object of specific class
-            return globals()[classname](operands, context, charmaps)
+            return globals()[classname](operands, context)
         else:
             # create object of passthrough-class
-            return cls(operands, operator, None, None)
+            return cls(operands, operator, None)
     def __repr__(self):
         return self.operator
     def get_relevant_operands(self):
@@ -108,12 +108,12 @@ class PDFOperation:
         stream.write(self.operator.encode("ascii")) # PDF operators are indeed ascii encoded
         stream.write(b"\n")
 class PDFOperationTf(PDFOperation):
-    def __init__(self, operands, context:Context, charmaps:Dict[str,CharMap]):
-        super().__init__(operands, "Tf", None, None)
+    def __init__(self, operands, context:Context):
+        super().__init__(operands, "Tf", None)
         context.font = operands[0]
 class PDFOperationTd(PDFOperation):
-    def __init__(self, operands, context:Context, charmaps:Dict[str,CharMap]):
-        super().__init__(operands, "Td", None, None)
+    def __init__(self, operands, context:Context):
+        super().__init__(operands, "Td", None)
         self._populate_text_map()
     def __repr__(self):
         return f"{self.operands} {self.operator}"
@@ -127,22 +127,22 @@ class PDFOperationTd(PDFOperation):
             self.text_map[0] = " "
         return map
 class PDFOperationTJ(PDFOperation):
-    def __init__(self, operands:list[list[Union[TextStringObject,ByteStringObject,NumberObject]]], context:Context, charmaps:Dict[str,CharMap]):
+    def __init__(self, operands:list[list[Union[TextStringObject,ByteStringObject,NumberObject]]], context:Context):
         if (len(operands) != 1):
             raise ValueError(f"PDFOperationTJ expects one non-empty Array of Array")
-        super().__init__(operands, "TJ", context.clone(), charmaps)
+        super().__init__(operands, "TJ", context.clone_shared_charmaps())
         self._populate_text_map()
     def __repr__(self):
         return f"„{self.get_relevant_operands()}“ {self.operator}"
     def _populate_text_map(self):
         for index, operand in enumerate(self.get_relevant_operands()):
             if (isinstance(operand, NumberObject) or isinstance(operand, FloatObject)):
-                halfspace = self.charmaps[self.context.font].halfspace
+                halfspace = self.context.charmaps[self.context.font].halfspace
                 if (operand < -halfspace):
                     # interpret big horizontal adjustment as space. total guess. works for the xelatex sample.
                     self.text_map[index] = " "
             else:
-                self.text_map[index] = self.charmaps[self.context.font].decode(operand)
+                self.text_map[index] = self.context.charmaps[self.context.font].decode(operand)
     def get_relevant_operands(self):
         return self.operands[0]
     def replace_text(self, text, start, end):
@@ -163,15 +163,15 @@ class PDFOperationTJ(PDFOperation):
             mid = [charmaps[self.context.font].encode(text, sample)]
         self.operands[0] = ArrayObject(pre+mid+post)
 class PDFOperationTj(PDFOperation):
-    def __init__(self, operands:list[Union[TextStringObject,ByteStringObject]], context:Context, charmaps:Dict[str,CharMap]):
+    def __init__(self, operands:list[Union[TextStringObject,ByteStringObject]], context:Context):
         if (len(operands) != 1):
             raise ValueError(f"PDFOperationTj expects one non-empty Array of TextStringObject")
-        super().__init__(operands, "Tj", context.clone(), charmaps)
+        super().__init__(operands, "Tj", context.clone_shared_charmaps())
         self._populate_text_map()
     def __repr__(self):
         return f"„{self.get_relevant_operands()}“ {self.operator}"
     def _populate_text_map(self):
-        self.text_map[0] = self.charmaps[self.context.font].decode(self.get_relevant_operands())
+        self.text_map[0] = self.context.charmaps[self.context.font].decode(self.get_relevant_operands())
     def get_relevant_operands(self):
         return self.operands[0]
     def replace_text(self, text, charmaps, start, end):
@@ -271,8 +271,8 @@ def replace_text(content:ContentStream, charmaps:Dict[str,CharMap], needle:str, 
     return replacement_count
 
 def append_to_tree_list(content, charmaps, tree_list):
-    context = Context()
-    operations = [PDFOperation.from_tuple(ops, op, context, charmaps) for ops, op in content.operations]
+    context = Context(charmaps)
+    operations = [PDFOperation.from_tuple(ops, op, context) for ops, op in content.operations]
     root = tree_list.GetRootItem()
     for operation in operations:
         if (operation.__class__ == PDFOperation):
