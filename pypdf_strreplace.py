@@ -183,8 +183,14 @@ class PDFOperationTj(PDFOperation):
     def get_text_map(self, charmaps):
         return [MappedOperand(self, self.operands[0], charmaps[self.context.font].decode(self.operands[0]))]
     def replace_text(self, needle, replacement, charmaps):
-        return False
-        #self.operands[0] = charmaps[self.context.font].encode(replacement, self.operands[0])
+        orig_text = self.get_text_map(charmaps)[0].text
+        try:
+            orig_text.index(needle)
+            new_text = self.get_text_map(charmaps)[0].text.replace(needle, replacement)
+            self.operands[0] = charmaps[self.context.font].encode(new_text, self.operands[0])
+            return True
+        except ValueError:
+            return False
 
 def search_in_mappings(text_maps, needle):
     #print([[t.text for t in text_map if t.text] for text_map in text_maps])
