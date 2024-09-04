@@ -5,11 +5,21 @@ do_test() {
     tmpdir="$(mktemp -d)"
     python3 pypdf_strreplace.py --output "$tmpdir"/"$1".pdf --input pdfs/"$2".pdf --search "$3" --replace "$4"
     test -f "$tmpdir"/"$1".pdf || return
-    convert -density 150 "$tmpdir"/"$1".pdf "$tmpdir"/"$1".tiff # -compress LZW
-    echo -n "Difference: "
-    compare test/"$1".tiff "$tmpdir"/"$1".tiff -metric AE "$tmpdir"/compare-result.pgm
-    echo ""
-    rm -r "$tmpdir"
+    convert -density 150 -alpha off "$tmpdir"/"$1".pdf -compress LZW "$tmpdir"/"$1".tiff
+    pages_count=$(identify "$tmpdir"/"$1".tiff | wc -l)
+    total_difference=0
+    for i in $(seq 0 $(($pages_count - 1)))
+    do
+        difference=$(compare -alpha off test/"$1".tiff[$i] "$tmpdir"/"$1".tiff[$i] -metric AE "$tmpdir"/compare-result_$i.pgm 2>&1)
+        echo "Difference: $difference on page $i"
+        total_difference=$(($total_difference + $difference))
+    done
+    if [[ $total_difference -gt 0 ]]
+    then
+        echo -e "\033[31;1mTest failed!\033[0m"
+    else
+        rm -r "$tmpdir"
+    fi
 }
 
 # simple tests (affect only one operand in one operation)
@@ -22,7 +32,7 @@ do_test "xelatex_simple" "xelatex" "symbol" "character"
 do_test "inkscape_multiple_operands" "Inkscape" "created" "made"
 
 # even less simple test (affect multiple operations)
-do_test "xelatex_multiple_operations" "xelatex" "n α symbo" "ny content meaningfu"
+do_test "xelatex_multiple_operations" "xelatex" "n α symbo" "ny content unti"
 
 # replace multiple occurrences
 do_test "dmytryo_multiple_occurrences" "Dmytro" "text" "fuzz"
