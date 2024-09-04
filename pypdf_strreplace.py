@@ -9,6 +9,7 @@ from pypdf.generic import DictionaryObject, NameObject, RectangleObject, Content
 from pypdf.generic._base import TextStringObject, ByteStringObject, NumberObject, FloatObject
 from pypdf.constants import PageAttributes as PG
 from pypdf._cmap import build_char_map
+import re
 import pprint
 
 class ExceptionalTranslator:
@@ -270,9 +271,7 @@ def replace_text(content:ContentStream, charmaps:Dict[str,CharMap], needle:str, 
     content.set_data(stream.getvalue())
     return replacement_count
 
-def append_to_tree_list(content, charmaps, tree_list):
-    context = Context(charmaps)
-    operations = [PDFOperation.from_tuple(ops, op, context) for ops, op in content.operations]
+def append_to_tree_list(operations, tree_list):
     root = tree_list.GetRootItem()
     for operation in operations:
         if (operation.__class__ == PDFOperation):
@@ -312,13 +311,35 @@ if __name__ == "__main__":
         reader = pypdf.PdfReader(args.input)
         for page_index, page in enumerate(reader.pages):
             charmaps = get_char_maps(page)
+            context = Context(charmaps)
             contents = page.get_contents()
             # NOTE: contents may be None, ContentStream, EncodedStreamObject, ArrayObject
             if (isinstance(contents, pypdf.generic._data_structures.ArrayObject)):
                 for content in contents:
-                    append_to_tree_list(content, charmaps, frame.m_treeList)
+                    raise NotImplementedError(f"TODO: have the same as for the content stream here.")
             elif (isinstance(contents, pypdf.generic._data_structures.ContentStream)):
-                append_to_tree_list(contents, charmaps, frame.m_treeList)
+                content = contents
+                operations = [PDFOperation.from_tuple(ops, op, context) for ops, op in content.operations]
+                text = ""
+                for op in operations:
+                    text += "".join([t for i,t in sorted(op.text_map.items(), key=lambda e:e[0])])
+                print(text)
+                matches = list(re.finditer(r"i", text))
+                for match in matches:
+                    print(match)
+                text = ""
+                match = None
+                for op in operations:
+                    for index, t in sorted(op.text_map.items(), key=lambda e:e[0]):
+                        text += t
+                        if (matches):
+                            if (len(text) >= matches[0].start(0)):
+                                match = matches[0]
+                                matches.pop(0)
+                            if (match and len(text) > match.end(0)):
+                                print(f"{text[:match.start(0)]}»{text[match.start(0):match.end(0)]}«{text[match.end(0):]}".strip())
+                                match = None
+                append_to_tree_list(operations, frame.m_treeList)
             else:
                 raise NotImplementedError(f"Handling content of type {type(contents)} is not implemented.")
 
