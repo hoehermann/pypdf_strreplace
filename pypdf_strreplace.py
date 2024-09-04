@@ -70,6 +70,7 @@ def get_char_maps(obj: Any, space_width: float = 200.0) -> Dict[str, CharMap]:
     return cmaps
 
 class MappedOperand:
+    # TODO: this is nice and object-oriented and all, but also quite fat. remove in favour of index-association
     def __init__(self, operation, operand, text):
         [setattr(self, k, v) for k,v in locals().items()]
     def __repr__(self):
@@ -111,18 +112,17 @@ class PDFOperationTf(PDFOperation):
 class PDFOperationTd(PDFOperation):
     def __init__(self, operands, context:Context, charmaps:Dict[str,CharMap]):
         super().__init__(operands, "Td", None, None)
+        self._populate_text_map()
     def __repr__(self):
         return f"{self.operands} {self.operator}"
     def _populate_text_map(self):
-        raise NotImplementedError()
-        map = []
         tx, ty = self.operands
         if (ty != 0):
             # consider a vertical adjustment starting a new line
-            map.append(MappedOperand(self, None, "\n"))
+            self.text_map[1] = "\n"
         elif (tx != 0):
-            # display horizontal adjustment as space. total guess. works for the xelatex sample.
-            map.append(MappedOperand(self, None, " "))
+            # interpret horizontal adjustment as space. total guess. works for the xelatex sample.
+            self.text_map[0] = " "
         return map
 class PDFOperationTJ(PDFOperation):
     def __init__(self, operands:list[list[Union[TextStringObject,ByteStringObject,NumberObject]]], context:Context, charmaps:Dict[str,CharMap]):
@@ -163,11 +163,11 @@ class PDFOperationTj(PDFOperation):
         if (len(operands) != 1):
             raise ValueError(f"PDFOperationTj expects one non-empty Array of TextStringObject")
         super().__init__(operands, "Tj", context.clone(), charmaps)
+        self._populate_text_map()
     def __repr__(self):
         return f"„{self.operands[0]}“ {self.operator}"
-    def get_text_map(self, charmaps):
-        raise NotImplementedError()
-        return [MappedOperand(self, self.operands[0], charmaps[self.context.font].decode(self.operands[0]))]
+    def _populate_text_map(self):
+        self.text_map[0] = self.charmaps[self.context.font].decode(self.operands[0])
     def replace_text(self, text, charmaps, start, end):
         raise NotImplementedError()
         self.operands[0] = charmaps[self.context.font].encode(text, self.operands[0])
@@ -270,15 +270,19 @@ def append_to_tree_list(content, charmaps, tree_list):
     root = tree_list.GetRootItem()
     for operation in operations:
         operation_node = tree_list.AppendItem(root, operation.operator)
-        for operand in operation.operands:
+        for operand_index, operand in enumerate(operation.operands):
             operand_node = tree_list.AppendItem(operation_node, str(operand))
             tree_list.SetItemText(operand_node, 1, str(type(operand).__name__))
-            if (isinstance(operand, pypdf.generic._data_structures.ArrayObject)):
-                for index, element in enumerate(operand):
+            # TODO: have a operation.get_relevand_operands() instead of this if
+            if (not isinstance(operand, pypdf.generic._data_structures.ArrayObject)):
+                if (operand_index in operation.text_map):
+                    tree_list.SetItemText(operand_node, 2, operation.text_map[operand_index].replace(" ","␣").replace("\n","↲")) # might also consider ␊
+            else:
+                for element_index, element in enumerate(operand):
                     element_node = tree_list.AppendItem(operand_node, str(element))
                     tree_list.SetItemText(element_node, 1, str(type(element).__name__))
-                    if (index in operation.text_map):
-                        tree_list.SetItemText(element_node, 2, operation.text_map[index].replace(" ","␣").replace("\n","↲"))
+                    if (element_index in operation.text_map):
+                        tree_list.SetItemText(element_node, 2, operation.text_map[element_index].replace(" ","␣").replace("\n","↲")) # might also consider ␊
         if (operation.operator in ["Td", "Tj", "TJ"]):
             tree_list.Expand(operation_node)
             tree_list.Expand(operand_node)
