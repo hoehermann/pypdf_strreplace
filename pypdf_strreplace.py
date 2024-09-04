@@ -99,6 +99,8 @@ class PDFOperation:
             return cls(operands, operator, None, None)
     def __repr__(self):
         return self.operator
+    def get_relevant_operands(self):
+        return self.operands
     def write_to_stream(self, stream):
         for op in self.operands:
             op.write_to_stream(stream)
@@ -131,9 +133,9 @@ class PDFOperationTJ(PDFOperation):
         super().__init__(operands, "TJ", context.clone(), charmaps)
         self._populate_text_map()
     def __repr__(self):
-        return f"„{self.operands[0]}“ {self.operator}"
+        return f"„{self.get_relevant_operands()}“ {self.operator}"
     def _populate_text_map(self):
-        for index, operand in enumerate(self.operands[0]):
+        for index, operand in enumerate(self.get_relevant_operands()):
             if (isinstance(operand, NumberObject) or isinstance(operand, FloatObject)):
                 halfspace = self.charmaps[self.context.font].halfspace
                 if (operand < -halfspace):
@@ -141,6 +143,8 @@ class PDFOperationTJ(PDFOperation):
                     self.text_map[index] = " "
             else:
                 self.text_map[index] = self.charmaps[self.context.font].decode(operand)
+    def get_relevant_operands(self):
+        return self.operands[0]
     def replace_text(self, text, start, end):
         raise NotImplementedError()
         # have a prefix with everything up to the beginning of the replacement
@@ -165,12 +169,14 @@ class PDFOperationTj(PDFOperation):
         super().__init__(operands, "Tj", context.clone(), charmaps)
         self._populate_text_map()
     def __repr__(self):
-        return f"„{self.operands[0]}“ {self.operator}"
+        return f"„{self.get_relevant_operands()}“ {self.operator}"
     def _populate_text_map(self):
-        self.text_map[0] = self.charmaps[self.context.font].decode(self.operands[0])
+        self.text_map[0] = self.charmaps[self.context.font].decode(self.get_relevant_operands())
+    def get_relevant_operands(self):
+        return self.operands[0]
     def replace_text(self, text, charmaps, start, end):
         raise NotImplementedError()
-        self.operands[0] = charmaps[self.context.font].encode(text, self.operands[0])
+        self.operands[0] = charmaps[self.context.font].encode(text, self.get_relevant_operands())
 
 def search_in_mappings(text_maps, needle):
     #print([[t.text for t in text_map if t.text] for text_map in text_maps])
@@ -269,20 +275,14 @@ def append_to_tree_list(content, charmaps, tree_list):
     operations = [PDFOperation.from_tuple(ops, op, context, charmaps) for ops, op in content.operations]
     root = tree_list.GetRootItem()
     for operation in operations:
+        if (operation.__class__ == PDFOperation):
+            continue # only show operations relevant to text processing
         operation_node = tree_list.AppendItem(root, operation.operator)
-        for operand_index, operand in enumerate(operation.operands):
+        for operand_index, operand in enumerate(operation.get_relevant_operands()):
             operand_node = tree_list.AppendItem(operation_node, str(operand))
             tree_list.SetItemText(operand_node, 1, str(type(operand).__name__))
-            # TODO: have a operation.get_relevand_operands() instead of this if
-            if (not isinstance(operand, pypdf.generic._data_structures.ArrayObject)):
-                if (operand_index in operation.text_map):
-                    tree_list.SetItemText(operand_node, 2, operation.text_map[operand_index].replace(" ","␣").replace("\n","↲")) # might also consider ␊
-            else:
-                for element_index, element in enumerate(operand):
-                    element_node = tree_list.AppendItem(operand_node, str(element))
-                    tree_list.SetItemText(element_node, 1, str(type(element).__name__))
-                    if (element_index in operation.text_map):
-                        tree_list.SetItemText(element_node, 2, operation.text_map[element_index].replace(" ","␣").replace("\n","↲")) # might also consider ␊
+            if (operand_index in operation.text_map):
+                tree_list.SetItemText(operand_node, 2, operation.text_map[operand_index].replace(" ","␣").replace("\n","↲")) # might also consider ␊
         if (operation.operator in ["Td", "Tj", "TJ"]):
             tree_list.Expand(operation_node)
             tree_list.Expand(operand_node)
