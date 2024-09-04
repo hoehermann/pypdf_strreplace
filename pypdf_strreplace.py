@@ -172,12 +172,12 @@ class PDFOperationTj(PDFOperation):
     def __repr__(self):
         return f"„{self.get_relevant_operands()}“ {self.operator}"
     def _populate_text_map(self):
-        self.text_map[0] = self.context.charmaps[self.context.font].decode(self.get_relevant_operands())
+        self.text_map[0] = self.context.charmaps[self.context.font].decode(self.operands[0])
     def get_relevant_operands(self):
-        return self.operands[0]
+        return self.operands
     def replace_text(self, text, charmaps, start, end):
         raise NotImplementedError()
-        self.operands[0] = charmaps[self.context.font].encode(text, self.get_relevant_operands())
+        self.operands[0] = charmaps[self.context.font].encode(text, self.operands[0])
 
 def search_in_mappings(text_maps, needle):
     #print([[t.text for t in text_map if t.text] for text_map in text_maps])
