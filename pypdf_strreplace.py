@@ -70,7 +70,7 @@ def get_char_maps(obj: Any, space_width: float = 200.0) -> Dict[str, CharMap]:
     return cmaps
 
 class MappedOperand:
-    def __init__(self, operation, operand, text):
+    def __init__(self, operation, operand, text, haystack_index=None):
         [setattr(self, k, v) for k,v in locals().items()]
     def __repr__(self):
         return f"{str(self.operation.operator)} → „{self.text}“"
@@ -102,6 +102,8 @@ class PDFOperation:
         stream.write(b"\n")
     def get_text_map(self, charmaps):
         return [MappedOperand(self, None, None)]
+    def replace_text(self, needle, replacement, charmaps):
+        return False
 class PDFOperationTf(PDFOperation):
     def __init__(self, operands, context:Context):
         super().__init__(operands, "Tf", None)
@@ -128,32 +130,49 @@ class PDFOperationTJ(PDFOperation):
         super().__init__(operands, "TJ", context.clone())
     def __repr__(self):
         return f"„{self.operands[0]}“ {self.operator}"
-    def get_text_map(self, charmaps):
-        map = []
-        for operand in self.operands[0]:
+
+    def get_characters_with_index(self, charmaps):
+        for i, operand in enumerate(self.operands[0]):
             if (isinstance(operand, NumberObject) or isinstance(operand, FloatObject)):
                 if (operand < -charmaps[self.context.font].halfspace):
                     # display big horizontal adjustment as space. total guess. works for the xelatex sample.
-                    map.append(MappedOperand(self, operand, " "))
+                    yield i, MappedOperand(self, operand, " ")
             else:
-                map.append(MappedOperand(self, operand, charmaps[self.context.font].decode(operand)))
-        return map
-    def replace_text(self, text, charmaps, start, end):
+                yield i, MappedOperand(self, operand, charmaps[self.context.font].decode(operand))
+
+    def get_text_map(self, charmaps):
+        for i, char in self.get_characters_with_index(charmaps):
+            yield char
+
+    def find_text(self, needle, charmaps):
+        needle_index = 0
+        start = None
+        end = None
+        for i, char in self.get_characters_with_index(charmaps):
+            if char.text == needle[needle_index]:
+                needle_index += 1
+                if start is None:
+                    start = i
+                if needle_index == len(needle):
+                    end = i
+                    break
+            else:
+                start = None
+        return start, end
+
+    def replace_text(self, needle, replacement, charmaps):
+        start, end = self.find_text(needle, charmaps)
+        if start is None or end is None:
+            return False
         # have a prefix with everything up to the beginning of the replacement
-        pre = []
-        if (start is not None):
-            start = self.operands[0].index(start)
-            pre = self.operands[0][:start]
+        pre = self.operands[0][:start]
         # have a postfix with everything after the end of the replacement
-        post = []
-        if (end is not None):
-            end = self.operands[0].index(end)
-            post = self.operands[0][end+1:]
+        post = self.operands[0][end+1:]
         mid = []
-        if (text):
-            sample = next((op for op in self.operands[0] if isinstance(op, TextStringObject) or isinstance(op, ByteStringObject)))
-            mid = [charmaps[self.context.font].encode(text, sample)]
+        sample = next((op for op in self.operands[0] if isinstance(op, TextStringObject) or isinstance(op, ByteStringObject)))
+        mid = [charmaps[self.context.font].encode(replacement, sample)]
         self.operands[0] = ArrayObject(pre+mid+post)
+        return True
 class PDFOperationTj(PDFOperation):
     def __init__(self, operands:list[Union[TextStringObject,ByteStringObject]], context:Context):
         if (len(operands) != 1):
@@ -163,8 +182,9 @@ class PDFOperationTj(PDFOperation):
         return f"„{self.operands[0]}“ {self.operator}"
     def get_text_map(self, charmaps):
         return [MappedOperand(self, self.operands[0], charmaps[self.context.font].decode(self.operands[0]))]
-    def replace_text(self, text, charmaps, start, end):
-        self.operands[0] = charmaps[self.context.font].encode(text, self.operands[0])
+    def replace_text(self, needle, replacement, charmaps):
+        return False
+        #self.operands[0] = charmaps[self.context.font].encode(replacement, self.operands[0])
 
 def search_in_mappings(text_maps, needle):
     #print([[t.text for t in text_map if t.text] for text_map in text_maps])
@@ -179,10 +199,10 @@ def search_in_mappings(text_maps, needle):
                     if (c == needle[needle_index]):
                         #print(f"Found „{c}“, needle_index now at {needle_index}.")
                         if (needle_index == 0):
-                            start = MappedOperand(mapped_operand.operation, mapped_operand.operand, mapped_operand.text[:haystack_index])
+                            start = MappedOperand(mapped_operand.operation, mapped_operand.operand, mapped_operand.text[:haystack_index], haystack_index=haystack_index)
                         needle_index += 1
                         if (needle_index == len(needle)):
-                            end = MappedOperand(mapped_operand.operation, mapped_operand.operand, mapped_operand.text[haystack_index+1:])
+                            end = MappedOperand(mapped_operand.operation, mapped_operand.operand, mapped_operand.text[haystack_index+1:], haystack_index=haystack_index)
                             break
                     else:
                         needle_index = 0
@@ -192,39 +212,15 @@ def search_in_mappings(text_maps, needle):
             break
     return (start, end)
 
-def replace_operations(operations:list[PDFOperation], start:MappedOperand, end:MappedOperand, replacement, charmaps):
-    out = []
-    tds = []
-    keep = True
+def replace_operations(operations:list[PDFOperation], needle, replacement, charmaps):
+    replacements_done = False
+    res = []
     for operation in operations:
-        if (keep):
-            out.append(operation)
-        elif (operation.operator == "Td"):
-            # relative text positioning operators may affect future lines
-            # do not drop them, but move them to after the end instead
-            tds.append(operation)
-        if (operation == start.operation):
-            #print("found the start")
-            keep = False
-            replacement = start.text+replacement
-            if (operation == end.operation):
-                #print("start also is the end")
-                replacement += end.text
-                keep = True
-            end_operand = end.operand
-            if (operation != end.operation):
-                end_operand = None
-            operation.replace_text(replacement, charmaps, start.operand, end_operand)
-            if (operation == end.operation):
-                out.extend(tds)
-        if (operation == end.operation and start.operation != end.operation):
-            #print("found the end")
-            replacement = end.text # text has already been fed into the start operation, but not the postfix
-            operation.replace_text(replacement, charmaps, None, end.operand)
-            out.append(operation)
-            out.extend(tds)
-            keep = True
-    return out
+        replacement_done = operation.replace_text(needle, replacement, charmaps)
+        replacements_done |= replacement_done
+        res.append(operation)
+    return replacements_done, res
+
 
 def replace_text(content:ContentStream, charmaps:Dict[str,CharMap], needle:str, replacement:str) -> int:
     replacement_count = 0
@@ -242,11 +238,8 @@ def replace_text(content:ContentStream, charmaps:Dict[str,CharMap], needle:str, 
             print("".join(["".join([t.text for t in text_map if t.text]) for text_map in text_maps]))
             break
         else:
-            start, end = search_in_mappings(text_maps, needle)
-            #print("START:", start)
-            #print("END:", end)
-            if (start and end):
-                operations = replace_operations(operations, start, end, replacement, charmaps)
+            replaced, operations = replace_operations(operations, needle, replacement, charmaps)
+            if replaced:
                 replacement_count +=1
             else:
                 break
