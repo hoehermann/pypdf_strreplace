@@ -32,7 +32,7 @@ do_test "xelatex_simple" "xelatex" "symbol" "character"
 do_test "inkscape_multiple_operands" "Inkscape" "created" "made"
 
 # even less simple test (affect multiple operations)
-do_test "xelatex_multiple_operations" "xelatex" "n α symbo" "ny content colorfu"
+do_test "xelatex_multiple_operations" "xelatex" "n α symbo" "ny content unti"
 do_test "libreoffice_multiple_operations" "LibreOffice" "PDF file" "text document"
 
 # replace multiple occurrences (but each affects only one operand in one operation)
