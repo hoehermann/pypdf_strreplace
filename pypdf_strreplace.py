@@ -5,7 +5,7 @@ import io
 import binascii
 import pypdf
 from typing import Any, Callable, Dict, Tuple, Union, List, cast
-from pypdf.generic import DictionaryObject, NameObject, RectangleObject, ContentStream, ArrayObject
+from pypdf.generic import DictionaryObject, NameObject, ContentStream, ArrayObject
 from pypdf.generic._base import TextStringObject, ByteStringObject, NumberObject, FloatObject
 from pypdf.constants import PageAttributes as PG
 from pypdf._cmap import build_char_map
@@ -394,14 +394,13 @@ if __name__ == "__main__":
     parser.add_argument('--output', type=str)
     parser.add_argument('--search', type=str)
     parser.add_argument('--replace', type=str)
-    parser.add_argument('--papersize', type=str)
-    parser.add_argument('--gui', action='store_true')
+    parser.add_argument('--debug-ui', action='store_true')
     args = parser.parse_args()
     
-    if (args.gui):
+    gui_treeList = None
+    if (args.debug_ui):
         import wx
         from gui import Main
-
         app = wx.App(False)
         frame = Main(parent=None)
         frame.m_treeList.AppendColumn("Operation")
@@ -410,6 +409,7 @@ if __name__ == "__main__":
         frame.m_treeList.AppendColumn("affected")
         font_size = frame.m_treeList.GetFont().GetPixelSize()
         frame.m_treeList.SetColumnWidth(col=0, width=30 * font_size[0])
+        gui_treeList = frame.m_treeList
 
     reader = pypdf.PdfReader(args.input)
     writer = pypdf.PdfWriter()
@@ -420,9 +420,9 @@ if __name__ == "__main__":
         # NOTE: contents may be None, ContentStream, EncodedStreamObject, ArrayObject
         if (isinstance(contents, pypdf.generic._data_structures.ArrayObject)):
             for content in contents:
-                replace_text(content, args.search, args.replace, frame.m_treeList)
+                replace_text(content, args.search, args.replace, gui_treeList)
         elif (isinstance(contents, pypdf.generic._data_structures.ContentStream)):
-            replace_text(contents, args.search, args.replace, frame.m_treeList)
+            replace_text(contents, args.search, args.replace, gui_treeList)
         else:
             raise NotImplementedError(f"Handling content of type {type(contents)} is not implemented.")
 
@@ -432,7 +432,7 @@ if __name__ == "__main__":
     if (args.output):
         writer.write(args.output)
 
-    if (args.gui):
+    if (args.debug_ui):
         frame.Show()
         app.MainLoop()
         
@@ -461,10 +461,6 @@ if __name__ == "__main__":
             else:
                 raise NotImplementedError(f"Cannot modify {type(contents)}.")
             page.replace_contents(contents)
-
-            if (args.papersize):
-                papersize = getattr(pypdf.PaperSize, args.papersize)
-                page.mediabox = RectangleObject((0, 0, papersize.width, papersize.height))
             writer.add_page(page)
         
         if (not just_print):
