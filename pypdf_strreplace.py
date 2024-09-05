@@ -98,8 +98,8 @@ class PDFOperation:
         else:
             # create object of passthrough-class
             return cls(operands, operator, None)
-    def __repr__(self):
-        return self.operator
+    # ~ def __repr__(self):
+        # ~ return self.operator
     def get_relevant_operands(self):
         return self.operands
     def write_to_stream(self, stream):
@@ -116,8 +116,8 @@ class PDFOperationTd(PDFOperation):
     def __init__(self, operands, context:Context):
         super().__init__(operands, "Td", None)
         self._populate_text_map()
-    def __repr__(self):
-        return f"{self.operands} {self.operator}"
+    # ~ def __repr__(self):
+        # ~ return f"{self.operands} {self.operator}"
     def _populate_text_map(self):
         tx, ty = self.operands
         if (ty != 0):
@@ -133,8 +133,8 @@ class PDFOperationTJ(PDFOperation):
             raise ValueError(f"PDFOperationTJ expects one non-empty Array of Array")
         super().__init__(operands, "TJ", context.clone_shared_charmaps())
         self._populate_text_map()
-    def __repr__(self):
-        return f"„{self.get_relevant_operands()}“ {self.operator}"
+    # ~ def __repr__(self):
+        # ~ return f"„{self.get_relevant_operands()}“ {self.operator}"
     def _populate_text_map(self):
         for index, operand in enumerate(self.get_relevant_operands()):
             if (isinstance(operand, NumberObject) or isinstance(operand, FloatObject)):
@@ -169,8 +169,8 @@ class PDFOperationTj(PDFOperation):
             raise ValueError(f"PDFOperationTj expects one non-empty Array of TextStringObject")
         super().__init__(operands, "Tj", context.clone_shared_charmaps())
         self._populate_text_map()
-    def __repr__(self):
-        return f"„{self.get_relevant_operands()}“ {self.operator}"
+    # ~ def __repr__(self):
+        # ~ return f"„{self.get_relevant_operands()}“ {self.operator}"
     def _populate_text_map(self):
         self.text_map[0] = self.context.charmaps[self.context.font].decode(self.operands[0])
     def get_relevant_operands(self):
@@ -271,20 +271,36 @@ def replace_text(content:ContentStream, charmaps:Dict[str,CharMap], needle:str, 
     content.set_data(stream.getvalue())
     return replacement_count
 
-def append_to_tree_list(operations, tree_list):
+def append_to_tree_list(operations, affected_operations, tree_list):#
     root = tree_list.GetRootItem()
     for operation in operations:
         if (operation.__class__ == PDFOperation):
             continue # only show operations relevant to text processing
         operation_node = tree_list.AppendItem(root, operation.operator)
+        replacements = []
+        if (operation in affected_operations):
+            tree_list.SetItemText(operation_node, 3, "yes")
+            replacements = affected_operations[operation]
         for operand_index, operand in enumerate(operation.get_relevant_operands()):
             operand_node = tree_list.AppendItem(operation_node, str(operand))
             tree_list.SetItemText(operand_node, 1, str(type(operand).__name__))
             if (operand_index in operation.text_map):
                 tree_list.SetItemText(operand_node, 2, operation.text_map[operand_index].replace(" ","␣").replace("\n","↲")) # might also consider ␊
+            affection = ""
+            for replacement in replacements:
+                if (operand_index == replacement.first):
+                    affection += "⭰"
+                if (operand_index > replacement.first and operand_index < replacement.last):
+                    affection += "×"
+                if (operand_index == replacement.last):
+                    affection += "⭲"
+            tree_list.SetItemText(operand_node, 3, affection)
         if (operation.operator in ["Td", "Tj", "TJ"]):
             tree_list.Expand(operation_node)
             tree_list.Expand(operand_node)
+
+import collections
+Replacement = collections.namedtuple('Replacement', ['first', 'last', 'text'])
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Replace text in a PDF file.')
@@ -305,6 +321,7 @@ if __name__ == "__main__":
         frame.m_treeList.AppendColumn("Operation")
         frame.m_treeList.AppendColumn("Type")
         frame.m_treeList.AppendColumn("Text")
+        frame.m_treeList.AppendColumn("affected")
         font_size = frame.m_treeList.GetFont().GetPixelSize()
         frame.m_treeList.SetColumnWidth(col=0, width=30 * font_size[0])
 
@@ -319,27 +336,55 @@ if __name__ == "__main__":
                     raise NotImplementedError(f"TODO: have the same as for the content stream here.")
             elif (isinstance(contents, pypdf.generic._data_structures.ContentStream)):
                 content = contents
+                # transform plain operations to high-level objects
                 operations = [PDFOperation.from_tuple(ops, op, context) for ops, op in content.operations]
+                # flatten mapping into text
                 text = ""
-                for op in operations:
-                    text += "".join([t for i,t in sorted(op.text_map.items(), key=lambda e:e[0])])
+                for operation in operations:
+                    text += "".join([t for i,t in sorted(operation.text_map.items(), key=lambda e:e[0])])
                 print(text)
-                matches = list(re.finditer(r"i", text))
+                # search in text
+                matches = list(re.finditer(args.search, text))
                 for match in matches:
                     print(match)
+                # look up which operations contributed to the match
                 text = ""
                 match = None
-                for op in operations:
-                    for index, t in sorted(op.text_map.items(), key=lambda e:e[0]):
+                replacements = collections.defaultdict(list)
+                for operation in operations:
+                    for index, t in sorted(operation.text_map.items(), key=lambda e:e[0]):
+                        previous_length = len(text)
                         text += t
-                        if (matches):
-                            if (len(text) >= matches[0].start(0)):
-                                match = matches[0]
-                                matches.pop(0)
-                            if (match and len(text) > match.end(0)):
-                                print(f"{text[:match.start(0)]}»{text[match.start(0):match.end(0)]}«{text[match.end(0):]}".strip())
-                                match = None
-                append_to_tree_list(operations, frame.m_treeList)
+                        while (matches or match):
+                            if (matches):
+                                if (len(text) >= matches[0].start(0)):
+                                    match = matches[0]
+                                    matches.pop(0)
+                                    first_affected_operand_index = index
+                                else:
+                                    # match exists, but the current text does not reach the start
+                                    # quit looking here and get more text
+                                    break
+                            if (match):
+                                if (len(text) >= match.end(0)):
+                                    print()
+                                    print(f"{text[:match.start(0)]}»{text[match.start(0):match.end(0)]}«{text[match.end(0):]}".strip())
+                                    # as far as I know, newlines do not actually exist in the operations
+                                    # they have been added by us for visual representation, so they are stripped here
+                                    prefix = t[:match.start(0)-previous_length].strip("\n")
+                                    postfix = t[match.end(0)-previous_length:].strip("\n")
+                                    # TODO: also search and replace in postfix
+                                    print(f"prefix: „{prefix}“")
+                                    print(f"postfix: „{postfix}“")
+                                    print()
+                                    # TODO: combine Replacements if same operand is affected multiple times
+                                    replacements[operation].append(Replacement(first_affected_operand_index, index, prefix+args.replace+postfix))
+                                    match = None
+                                else:
+                                    # match exists, but the current text does not reach the end
+                                    # quit looking here and get more text
+                                    break
+                append_to_tree_list(operations, replacements, frame.m_treeList)
             else:
                 raise NotImplementedError(f"Handling content of type {type(contents)} is not implemented.")
 
