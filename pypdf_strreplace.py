@@ -214,7 +214,7 @@ def schedule_changes(operations, matches, args_replace):
                 text += operand_text
                 while (matches or match):
                     if (matches):
-                        if (len(text) >= matches[0].start(0)):
+                        if (len(text) > matches[0].start(0)):
                             match = matches[0]
                             matches.pop(0)
                             # newlines do not actually occur in the PDF. they have been added by us for visual representation. they must be removed here
