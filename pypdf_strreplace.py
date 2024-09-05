@@ -117,8 +117,8 @@ class PDFOperationTd(PDFOperation):
     def __init__(self, operands, context:Context):
         super().__init__(operands, "Td", None)
         self._populate_text_map()
-    # ~ def __repr__(self):
-        # ~ return f"{self.operands} {self.operator}"
+    def __str__(self):
+        return f"{self.operands} {self.operator}"
     def _populate_text_map(self):
         tx, ty = self.operands
         if (ty != 0):
@@ -134,8 +134,11 @@ class PDFOperationTJ(PDFOperation):
             raise ValueError(f"PDFOperationTJ expects one non-empty Array of Array")
         super().__init__(operands, "TJ", context.clone_shared_charmaps())
         self._populate_text_map()
-    # ~ def __repr__(self):
-        # ~ return f"„{self.get_relevant_operands()}“ {self.operator}"
+        object_types = set([operand.__class__ for operand in operands])-set([NumberObject.__class__])
+        if (len(object_types) > 1):
+            raise NotImplementedError(f"Cannot handle Operations with mixed string object types {str(object_types)}.")
+    def __str__(self):
+        return f"„{self.get_relevant_operands()}“ {self.operator}"
     def _populate_text_map(self):
         for index, operand in enumerate(self.get_relevant_operands()):
             if (isinstance(operand, NumberObject) or isinstance(operand, FloatObject)):
@@ -147,23 +150,9 @@ class PDFOperationTJ(PDFOperation):
                 self.text_map[index] = self.context.charmaps[self.context.font].decode(operand)
     def get_relevant_operands(self):
         return self.operands[0]
-    def replace_text(self, text, start, end):
-        raise NotImplementedError()
-        # have a prefix with everything up to the beginning of the replacement
-        pre = []
-        if (start is not None):
-            start = self.operands[0].index(start)
-            pre = self.operands[0][:start]
-        # have a postfix with everything after the end of the replacement
-        post = []
-        if (end is not None):
-            end = self.operands[0].index(end)
-            post = self.operands[0][end+1:]
-        mid = []
-        if (text):
-            sample = next((op for op in self.operands[0] if isinstance(op, TextStringObject) or isinstance(op, ByteStringObject)))
-            mid = [charmaps[self.context.font].encode(text, sample)]
-        self.operands[0] = ArrayObject(pre+mid+post)
+    def set_operand_text(self, text, index):
+        sample = next((op for op in self.operands[0] if isinstance(op, TextStringObject) or isinstance(op, ByteStringObject)))
+        self.operands[0][index] = charmaps[self.context.font].encode(text, sample)
 class PDFOperationTj(PDFOperation):
     def __init__(self, operands:list[Union[TextStringObject,ByteStringObject]], context:Context):
         if (len(operands) != 1):
@@ -176,34 +165,8 @@ class PDFOperationTj(PDFOperation):
         self.text_map[0] = self.context.charmaps[self.context.font].decode(self.operands[0])
     def get_relevant_operands(self):
         return self.operands
-    def set_text(self, text, start, end):
+    def set_operand_text(self, text, index):
         self.operands[0] = charmaps[self.context.font].encode(text, self.operands[0])
-
-def search_in_mappings(text_maps, needle):
-    #print([[t.text for t in text_map if t.text] for text_map in text_maps])
-    # TODO: it would be better to have a list of (char → reference), search the needle, get the references by index. that would also allow the use of the regular expressions
-    needle_index = 0
-    start =  None
-    end = None
-    for operation_level in text_maps: # TODO: remove this level
-        for mapped_operand in operation_level:
-            if (mapped_operand.text):
-                for haystack_index, c in enumerate(mapped_operand.text):
-                    if (c == needle[needle_index]):
-                        #print(f"Found „{c}“, needle_index now at {needle_index}.")
-                        if (needle_index == 0):
-                            start = MappedOperand(mapped_operand.operation, mapped_operand.operand, mapped_operand.text[:haystack_index])
-                        needle_index += 1
-                        if (needle_index == len(needle)):
-                            end = MappedOperand(mapped_operand.operation, mapped_operand.operand, mapped_operand.text[haystack_index+1:])
-                            break
-                    else:
-                        needle_index = 0
-            if (needle_index == len(needle)):
-                break
-        if (needle_index == len(needle)):
-            break
-    return (start, end)
 
 def replace_operations(operations:list[PDFOperation], start:MappedOperand, end:MappedOperand, replacement, charmaps:Dict[str,CharMap]):
     out = []
@@ -313,7 +276,6 @@ def find_affected_operations(operations, matches, args_replace):
     affected_operations = collections.defaultdict(list)
     for operation in operations:
         for index, t in sorted(operation.text_map.items(), key=lambda e:e[0]):
-            previous_length = len(text)
             text += t
             while (matches or match):
                 if (matches):
@@ -331,18 +293,19 @@ def find_affected_operations(operations, matches, args_replace):
                         print(f"{text[:match.start(0)]}»{text[match.start(0):match.end(0)]}«{text[match.end(0):]}".strip())
                         # as far as I know, newlines do not actually exist in the operations
                         # they have been added by us for visual representation, so they are stripped here
-                        prefix = t[:match.start(0)-previous_length].strip("\n")
+                        prefix = t[:match.start(0)-previous_length].strip("\n") # this breaks if match spans accross multiple operands, see LibreOffice sample – look up prefix based on operation.text_map[first_affected_operand_index]?
                         postfix = t[match.end(0)-previous_length:].strip("\n")
                         # there probably is a more elegant way of doing this, but
                         # since we will be processing backwards, the last postfix will override previous matches,
                         # so we do the same replacements in the postfix again
-                        postfix = match.re.sub(args_replace, postfix) 
+                        postfix = match.re.sub(args_replace, postfix) if args_replace else postfix
                         print(f"prefix: „{prefix}“")
-                        print(f"infix: „{match.expand(args_replace)}“")
+                        print(f"infix: „{match.expand(args_replace) if args_replace else match.group(0)}“")
                         print(f"postfix: „{postfix}“")
                         print()
+                        new_text = prefix+match.expand(args_replace)+postfix if args_replace else prefix+match.group(0)+postfix
                         # TODO: combine Replacements if same operand is affected multiple times
-                        affected_operations[operation].append(Replacement(first_affected_operand_index, index, prefix+match.expand(args_replace)+postfix))
+                        affected_operations[operation].append(Replacement(first_affected_operand_index, index, new_text))
                         match = None
                     else:
                         # match exists, but the current text does not reach the end
@@ -365,28 +328,31 @@ def replace_text(content, args_search, args_replace, gui_treeList):
     affected_operations = find_affected_operations(operations, matches, args_replace)
     if (gui_treeList):
         append_to_tree_list(operations, affected_operations, gui_treeList)
-    # do the replacements, but working backwards – else the indices would no longer match
-    for operation in reversed(operations):
-        print(f"Before replacements: {operation}")
-        replacements = []
-        if (operation in affected_operations):
-            replacements = affected_operations[operation]
-            for operand_index, operand in enumerate(operation.get_relevant_operands()):
-                affection = ""
-                for replacement in reversed(replacements):
-                    if (operand_index == replacement.first):
-                        affection += "⭰"
-                    if (operand_index > replacement.first and operand_index < replacement.last):
-                        affection += "×"
-                    if (operand_index == replacement.last):
-                        affection += "⭲"
-                if ("⭰" in affection):
-                    operation.set_text(replacement.text, replacement.first, replacement.last)
-                if ("⭲" in affection and not "⭰" in affection):
-                    operation.get_relevant_operands().remove(operand_index)
-                if ("×" in affection):
-                    operation.get_relevant_operands().remove(operand_index)
-        print(f"After replacements:  {operation}")
+    if (args_replace):
+        # do the replacements, but working backwards – else the indices would no longer match
+        for operation in reversed(operations):
+            print(f"Before replacements: {operation}")
+            replacements = []
+            if (operation in affected_operations):
+                replacements = affected_operations[operation]
+                for operand_index, operand in enumerate(operation.get_relevant_operands()):
+                    affection = ""
+                    for replacement in reversed(replacements):
+                        if (operand_index == replacement.first):
+                            affection += "⭰"
+                        if (operand_index > replacement.first and operand_index < replacement.last):
+                            affection += "×"
+                        if (operand_index == replacement.last):
+                            affection += "⭲"
+                    if ("⭰" in affection):
+                        operation.set_operand_text(replacement.text, operand_index)
+                    if ("⭲" in affection and not "⭰" in affection):
+                        print(f"Removing operand #{operand_index}…")
+                        operation.get_relevant_operands().pop(operand_index)
+                    if ("×" in affection):
+                        print(f"Removing operand #{operand_index}…")
+                        operation.get_relevant_operands().pop(operand_index)
+            print(f"After replacements:  {operation}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Replace text in a PDF file.')
