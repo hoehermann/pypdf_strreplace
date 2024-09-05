@@ -32,9 +32,10 @@ do_test "xelatex_simple" "xelatex" "symbol" "character"
 do_test "inkscape_multiple_operands" "Inkscape" "created" "made"
 
 # even less simple test (affect multiple operations)
-do_test "xelatex_multiple_operations" "xelatex" "n α symbo" "ny content unti"
+do_test "xelatex_multiple_operations" "xelatex" "n α symbo" "ny content meaningfu"
+do_test "libreoffice_multiple_operations" "LibreOffice" "PDF file" "text document"
 
-# replace multiple occurrences
+# replace multiple occurrences (but each affects only one operand in one operation)
 do_test "dmytryo_multiple_occurrences" "Dmytro" "text" "fuzz"
 
 # this shows how horizontal positioning can be off
