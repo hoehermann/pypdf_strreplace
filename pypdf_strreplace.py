@@ -20,7 +20,7 @@ class ExceptionalTranslator:
         if key not in self.trans.keys():
             error_message = f"Replacement character »{chr(key)}« (ordinal {key}) is not available in this document." # error message on separate line to avoid confusion with the acutal string „key“
             raise ValueError(error_message)
-        self.trans.__getitem__(key)
+        return self.trans.__getitem__(key)
 
 class CharMap:
     def __init__(self, subtype, halfspace, encoding, map, ft):
