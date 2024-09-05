@@ -238,7 +238,7 @@ def replace_operations(operations:list[PDFOperation], start:MappedOperand, end:M
             keep = True
     return out
 
-def replace_text(content:ContentStream, charmaps:Dict[str,CharMap], needle:str, replacement:str) -> int:
+def replace_text_ex(content:ContentStream, charmaps:Dict[str,CharMap], needle:str, replacement:str) -> int:
     replacement_count = 0
     #print(content.get_data())
     #pprint.pprint(content.operations)
@@ -300,6 +300,84 @@ def append_to_tree_list(operations, affected_operations, tree_list):#
 
 import collections
 Replacement = collections.namedtuple('Replacement', ['first', 'last', 'text'])
+def replace_text(content, args_search, args_replace, gui_treeList):
+    # transform plain operations to high-level objects
+    operations = [PDFOperation.from_tuple(ops, op, context) for ops, op in content.operations]
+    # flatten mapping into text
+    text = ""
+    for operation in operations:
+        text += "".join([t for i,t in sorted(operation.text_map.items(), key=lambda e:e[0])])
+    print(text)
+    # search in text
+    matcher = re.compile(args_search)
+    matches = list(matcher.finditer(text))
+    for match in matches:
+        print(match)
+    # look up which operations contributed to the match
+    text = ""
+    match = None
+    affected_operations = collections.defaultdict(list)
+    for operation in operations:
+        for index, t in sorted(operation.text_map.items(), key=lambda e:e[0]):
+            previous_length = len(text)
+            text += t
+            while (matches or match):
+                if (matches):
+                    if (len(text) >= matches[0].start(0)):
+                        match = matches[0]
+                        matches.pop(0)
+                        first_affected_operand_index = index
+                    else:
+                        # match exists, but the current text does not reach the start
+                        # quit looking here and get more text
+                        break
+                if (match):
+                    if (len(text) >= match.end(0)):
+                        print()
+                        print(f"{text[:match.start(0)]}»{text[match.start(0):match.end(0)]}«{text[match.end(0):]}".strip())
+                        # as far as I know, newlines do not actually exist in the operations
+                        # they have been added by us for visual representation, so they are stripped here
+                        prefix = t[:match.start(0)-previous_length].strip("\n")
+                        postfix = t[match.end(0)-previous_length:].strip("\n")
+                        # there probably is a more elegant way of doing this, but
+                        # since we will be processing backwards, the last postfix will override previous matches,
+                        # so we do the same replacements in the postfix again
+                        postfix = matcher.sub(args_replace, postfix) 
+                        print(f"prefix: „{prefix}“")
+                        print(f"infix: „{match.expand(args_replace)}“")
+                        print(f"postfix: „{postfix}“")
+                        print()
+                        # TODO: combine Replacements if same operand is affected multiple times
+                        affected_operations[operation].append(Replacement(first_affected_operand_index, index, prefix+match.expand(args_replace)+postfix))
+                        match = None
+                    else:
+                        # match exists, but the current text does not reach the end
+                        # quit looking here and get more text
+                        break
+    if (gui_treeList):
+        append_to_tree_list(operations, affected_operations, gui_treeList)
+    # do the replacements, but working backwards – else the indices would no longer match
+    for operation in reversed(operations):
+        print(f"Before replacements: {operation}")
+        replacements = []
+        if (operation in affected_operations):
+            replacements = affected_operations[operation]
+            for operand_index, operand in enumerate(operation.get_relevant_operands()):
+                affection = ""
+                for replacement in reversed(replacements):
+                    if (operand_index == replacement.first):
+                        affection += "⭰"
+                    if (operand_index > replacement.first and operand_index < replacement.last):
+                        affection += "×"
+                    if (operand_index == replacement.last):
+                        affection += "⭲"
+                if ("⭰" in affection):
+                    operation.set_text(replacement.text, replacement.first, replacement.last)
+                if ("⭲" in affection and not "⭰" in affection):
+                    operation.get_relevant_operands().remove(operand_index)
+                if ("×" in affection):
+                    operation.get_relevant_operands().remove(operand_index)
+        print(f"After replacements:  {operation}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Replace text in a PDF file.')
@@ -333,86 +411,9 @@ if __name__ == "__main__":
         # NOTE: contents may be None, ContentStream, EncodedStreamObject, ArrayObject
         if (isinstance(contents, pypdf.generic._data_structures.ArrayObject)):
             for content in contents:
-                raise NotImplementedError(f"TODO: have the same as for the content stream here.")
+                replace_text(content, args.search, args.replace, frame.m_treeList)
         elif (isinstance(contents, pypdf.generic._data_structures.ContentStream)):
-            content = contents
-            # transform plain operations to high-level objects
-            operations = [PDFOperation.from_tuple(ops, op, context) for ops, op in content.operations]
-            # flatten mapping into text
-            text = ""
-            for operation in operations:
-                text += "".join([t for i,t in sorted(operation.text_map.items(), key=lambda e:e[0])])
-            print(text)
-            # search in text
-            matcher = re.compile(args.search)
-            matches = list(matcher.finditer(text))
-            for match in matches:
-                print(match)
-            # look up which operations contributed to the match
-            text = ""
-            match = None
-            affected_operations = collections.defaultdict(list)
-            for operation in operations:
-                for index, t in sorted(operation.text_map.items(), key=lambda e:e[0]):
-                    previous_length = len(text)
-                    text += t
-                    while (matches or match):
-                        if (matches):
-                            if (len(text) >= matches[0].start(0)):
-                                match = matches[0]
-                                matches.pop(0)
-                                first_affected_operand_index = index
-                            else:
-                                # match exists, but the current text does not reach the start
-                                # quit looking here and get more text
-                                break
-                        if (match):
-                            if (len(text) >= match.end(0)):
-                                print()
-                                print(f"{text[:match.start(0)]}»{text[match.start(0):match.end(0)]}«{text[match.end(0):]}".strip())
-                                # as far as I know, newlines do not actually exist in the operations
-                                # they have been added by us for visual representation, so they are stripped here
-                                prefix = t[:match.start(0)-previous_length].strip("\n")
-                                postfix = t[match.end(0)-previous_length:].strip("\n")
-                                # there probably is a more elegant way of doing this, but
-                                # since we will be processing backwards, the last postfix will override previous matches,
-                                # so we do the same replacements in the postfix again
-                                postfix = matcher.sub(args.replace, postfix) 
-                                print(f"prefix: „{prefix}“")
-                                print(f"infix: „{match.expand(args.replace)}“")
-                                print(f"postfix: „{postfix}“")
-                                print()
-                                # TODO: combine Replacements if same operand is affected multiple times
-                                affected_operations[operation].append(Replacement(first_affected_operand_index, index, prefix+match.expand(args.replace)+postfix))
-                                match = None
-                            else:
-                                # match exists, but the current text does not reach the end
-                                # quit looking here and get more text
-                                break
-            if (args.gui):
-                append_to_tree_list(operations, affected_operations, frame.m_treeList)
-            # do the replacements, but working backwards – else the indices would no longer match
-            for operation in reversed(operations):
-                print(f"Before replacements: {operation}")
-                replacements = []
-                if (operation in affected_operations):
-                    replacements = affected_operations[operation]
-                    for operand_index, operand in enumerate(operation.get_relevant_operands()):
-                        affection = ""
-                        for replacement in reversed(replacements):
-                            if (operand_index == replacement.first):
-                                affection += "⭰"
-                            if (operand_index > replacement.first and operand_index < replacement.last):
-                                affection += "×"
-                            if (operand_index == replacement.last):
-                                affection += "⭲"
-                        if ("⭰" in affection):
-                            operation.set_text(replacement.text, replacement.first, replacement.last)
-                        if ("⭲" in affection and not "⭰" in affection):
-                            operation.get_relevant_operands().remove(operand_index)
-                        if ("×" in affection):
-                            operation.get_relevant_operands().remove(operand_index)
-                print(f"After replacements:  {operation}")
+            replace_text(contents, args.search, args.replace, frame.m_treeList)
         else:
             raise NotImplementedError(f"Handling content of type {type(contents)} is not implemented.")
 
