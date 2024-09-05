@@ -45,10 +45,7 @@ class CharMap:
     def encode(self, text, reference):
         #print(f"Encoding „{text}“ to conform to", type(reference))
         if (isinstance(self.encoding, dict)):
-            t = TextStringObject(text)
-            t.autodetect_pdfdocencoding = reference.autodetect_pdfdocencoding
-            t.autodetect_utf16 = reference.autodetect_utf16
-            return t
+            return TextStringObject(text)
         elif (self.encoding == "charmap"):
             map = {v:k for k,v in self.map.items()}
             return ByteStringObject(text.translate(ExceptionalTranslator(map)).encode('ascii')) # encoding with ascii is a wild guess
@@ -145,7 +142,11 @@ class PDFOperationTJ(PDFOperation):
     def get_relevant_operands(self):
         return self.operands[0]
     def set_operand_text(self, text, index):
-        sample = next((op for op in self.operands[0] if isinstance(op, TextStringObject) or isinstance(op, ByteStringObject)))
+        sample = self.operands[0][index] # use the operand which is going to be replaced as a sample
+        # it is possible that the operand we are going to replace is a space produced by horizontal adjustment
+        if (not isinstance(sample, TextStringObject) and not isinstance(sample, ByteStringObject)):
+            # in this case, just select any text operand
+            sample = next((op for op in self.operands[0] if isinstance(op, TextStringObject) or isinstance(op, ByteStringObject)))
         self.operands[0][index] = charmaps[self.context.font].encode(text, sample)
 class PDFOperationTj(PDFOperation):
     def __init__(self, operands:list[Union[TextStringObject,ByteStringObject]], context:Context):
@@ -160,7 +161,8 @@ class PDFOperationTj(PDFOperation):
     def get_relevant_operands(self):
         return self.operands
     def set_operand_text(self, text, index):
-        self.operands[0] = charmaps[self.context.font].encode(text, self.operands[0])
+        sample = self.operands[0] # Tj has only one operand
+        self.operands[0] = charmaps[self.context.font].encode(text, sample)
 
 def append_to_tree_list(operations, tree_list):
     root = tree_list.GetRootItem()
@@ -175,7 +177,7 @@ def append_to_tree_list(operations, tree_list):
             if (operand_index in operation.text_map):
                 tree_list.SetItemText(operand_node, 2, operation.text_map[operand_index].replace(" ","␣").replace("\n","↲")) # might also consider ␊
             tree_list.SetItemText(operand_node, 3, str(getattr(operand, "scheduled_change", "")))
-        if (operation.operator in ["Td", "Tj", "TJ"]):
+        if (operation.operator in ["Td", "Tj", "TJ"]): # only expand operators relevant to text
             tree_list.Expand(operation_node)
             tree_list.Expand(operand_node)
 
@@ -244,8 +246,14 @@ def schedule_changes(operations, matches, args_replace):
                             first_operation.scheduled_change = Change()
                             print(f"{first_operation} must be changed.")
                             if (operation != first_operation):
-                                print(f"Current {operation} is not first {first_operation} and must be deleted.")
-                                operation.scheduled_change = Delete()
+                                print(f"Current operation is not first first_operation.")
+                                operand_changes = set([c.__class__.__name__ if c else c for c in [getattr(op, "scheduled_change", None) for op in operation.get_relevant_operands()]])
+                                if (operand_changes-set([Delete.__name__])):
+                                    print(f"But not all operands are going to be deleted – so the operation must be changed.")
+                                    operation.scheduled_change = Change()
+                                else:
+                                    print(f"All operands will be deleted – the operation must be deleted as well.")
+                                    operation.scheduled_change = Delete()
                             # match complete – reset
                             match = None
                             first_operation = None
@@ -281,12 +289,15 @@ def replace_text(content, args_search, args_replace, gui_treeList):
             operation_change = getattr(operation, "scheduled_change", None)
             if (operation_change):
                 operation_change.apply(operation, operation_index, operations)
-                print(f"Before replacements: {operation}")
-                for operand_index, operand in reversed(list(enumerate(operation.get_relevant_operands()))):
-                    operand_change = getattr(operand, "scheduled_change", None)
-                    if (operand_change):
-                        operand_change.apply(operation, operand_index, operation.get_relevant_operands())
-                print(f"After replacements:  {operation}")
+                if (operation in operations):
+                    print(f"Before replacements: {operation}")
+                    for operand_index, operand in reversed(list(enumerate(operation.get_relevant_operands()))):
+                        operand_change = getattr(operand, "scheduled_change", None)
+                        if (operand_change):
+                            operand_change.apply(operation, operand_index, operation.get_relevant_operands())
+                    print(f"After replacements:  {operation}")
+                else:
+                    print(f"Deleted: {operation}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Replace text in a PDF file.')
