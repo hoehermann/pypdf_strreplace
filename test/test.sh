@@ -2,9 +2,9 @@ cd "$(dirname "$0")"/..
 
 do_test() {
     echo "Test $@…"
-    tmpdir="$(mktemp -d)"
-    python3 pypdf_strreplace.py --output "$tmpdir"/"$1".pdf --input pdfs/"$2".pdf --search "$3" --replace "$4"
-    test -f "$tmpdir"/"$1".pdf || return
+    tmpdir="$(mktemp -d "/tmp/test.$1.XXXXXXXXXX,")"
+    timeout --verbose 1 python3 pypdf_strreplace.py --output "$tmpdir"/"$1".pdf --input pdfs/"$2".pdf --search "$3" --replace "$4" > "$tmpdir"/messages.log
+    #atril "$tmpdir"/"$1".pdf
     convert -density 150 -alpha off "$tmpdir"/"$1".pdf -compress LZW "$tmpdir"/"$1".tiff
     pages_count=$(identify "$tmpdir"/"$1".tiff | wc -l)
     total_difference=0
@@ -38,12 +38,8 @@ do_test "libreoffice_multiple_operations" "LibreOffice" "PDF file" "text documen
 # replace multiple occurrences (but each affects only one operand in one operation)
 do_test "dmytryo_multiple_occurrences" "Dmytro" "text" "fuzz"
 
+# the replacement may contain the needle (test for infinite loop)
+do_test "dmytryo_needle_remains" "Dmytro" "text" "context"
+
 # this shows how horizontal positioning can be off
 # python3 pypdf_strreplace.py --input pdfs/xelatex.pdf --search "mes wit" --replace "ws can was" --output out.pdf
-
-# the replacement may contain the needle
-# test for infinite loops
-timeout --verbose 1 python3 pypdf_strreplace.py --input pdfs/Dmytro.pdf --search text --replace context --output out.pdf 
-timeout --verbose 1 python3 pypdf_strreplace.py --input pdfs/Dmytro.pdf --search text --replace text --output out.pdf 
-timeout --verbose 1 python3 pypdf_strreplace.py --input pdfs/Dmytro.pdf --search text --replace contextual --output out.pdf 
-
