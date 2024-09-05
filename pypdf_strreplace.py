@@ -263,8 +263,10 @@ def schedule_changes(operations, matches, args_replace):
                             # quit looking here and get more text
                             break
             #print(f'{operand} scheduled_change is {getattr(operand, "scheduled_change", None)}')
-            if (first_operand is not None and not hasattr(operand, "scheduled_change")):
+            if (operation.operator in ["TJ", "Tj"] and first_operand is not None and not hasattr(operand, "scheduled_change")):
+                # delete operands containing replaced text
                 operand.scheduled_change = Delete()
+        # maybe narrow down with operation.operator in ["TJ", "Tj", "Tf"]
         if (first_operation is not None and not hasattr(operation, "scheduled_change")):
             operation.scheduled_change = Delete()
 
