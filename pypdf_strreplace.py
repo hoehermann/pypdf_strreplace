@@ -4,13 +4,14 @@ import sys
 import io
 import binascii
 import pypdf
-from typing import Any, Callable, Dict, Tuple, Union, cast
+from typing import Any, Callable, Dict, Tuple, Union, List, cast
 from pypdf.generic import DictionaryObject, NameObject, RectangleObject, ContentStream, ArrayObject
 from pypdf.generic._base import TextStringObject, ByteStringObject, NumberObject, FloatObject
 from pypdf.constants import PageAttributes as PG
 from pypdf._cmap import build_char_map
 import re
 import pprint
+import collections
 
 class ExceptionalTranslator:
     def __init__(self, map):
@@ -298,22 +299,15 @@ def append_to_tree_list(operations, affected_operations, tree_list):#
             tree_list.Expand(operation_node)
             tree_list.Expand(operand_node)
 
-import collections
-Replacement = collections.namedtuple('Replacement', ['first', 'last', 'text'])
-def replace_text(content, args_search, args_replace, gui_treeList):
-    # transform plain operations to high-level objects
-    operations = [PDFOperation.from_tuple(ops, op, context) for ops, op in content.operations]
-    # flatten mapping into text
+def extract_text(operations: List[PDFOperation]):
     text = ""
     for operation in operations:
         text += "".join([t for i,t in sorted(operation.text_map.items(), key=lambda e:e[0])])
+    return text
     print(text)
-    # search in text
-    matcher = re.compile(args_search)
-    matches = list(matcher.finditer(text))
-    for match in matches:
-        print(match)
-    # look up which operations contributed to the match
+
+Replacement = collections.namedtuple('Replacement', ['first', 'last', 'text'])
+def find_affected_operations(operations, matches, args_replace):
     text = ""
     match = None
     affected_operations = collections.defaultdict(list)
@@ -342,7 +336,7 @@ def replace_text(content, args_search, args_replace, gui_treeList):
                         # there probably is a more elegant way of doing this, but
                         # since we will be processing backwards, the last postfix will override previous matches,
                         # so we do the same replacements in the postfix again
-                        postfix = matcher.sub(args_replace, postfix) 
+                        postfix = match.re.sub(args_replace, postfix) 
                         print(f"prefix: „{prefix}“")
                         print(f"infix: „{match.expand(args_replace)}“")
                         print(f"postfix: „{postfix}“")
@@ -354,6 +348,21 @@ def replace_text(content, args_search, args_replace, gui_treeList):
                         # match exists, but the current text does not reach the end
                         # quit looking here and get more text
                         break
+    return affected_operations
+
+def replace_text(content, args_search, args_replace, gui_treeList):
+    # transform plain operations to high-level objects
+    operations = [PDFOperation.from_tuple(ops, op, context) for ops, op in content.operations]
+    # flatten mappings into one plain text string
+    text = extract_text(operations)
+    print(text)
+    # search in text
+    matcher = re.compile(args_search)
+    matches = list(matcher.finditer(text))
+    for match in matches:
+        print(match)
+    # look up which operations contributed to each match
+    affected_operations = find_affected_operations(operations, matches, args_replace)
     if (gui_treeList):
         append_to_tree_list(operations, affected_operations, gui_treeList)
     # do the replacements, but working backwards – else the indices would no longer match
@@ -427,7 +436,7 @@ if __name__ == "__main__":
         frame.Show()
         app.MainLoop()
         
-    else:
+    if False:
         just_print = args.search is None or args.replace is None
 
         total_replacements = 0
