@@ -169,14 +169,13 @@ class PDFOperationTj(PDFOperation):
             raise ValueError(f"PDFOperationTj expects one non-empty Array of TextStringObject")
         super().__init__(operands, "Tj", context.clone_shared_charmaps())
         self._populate_text_map()
-    # ~ def __repr__(self):
-        # ~ return f"„{self.get_relevant_operands()}“ {self.operator}"
+    def __str__(self):
+        return f"„{self.get_relevant_operands()}“ {self.operator}"
     def _populate_text_map(self):
         self.text_map[0] = self.context.charmaps[self.context.font].decode(self.operands[0])
     def get_relevant_operands(self):
         return self.operands
-    def replace_text(self, text, charmaps, start, end):
-        raise NotImplementedError()
+    def set_text(self, text, start, end):
         self.operands[0] = charmaps[self.context.font].encode(text, self.operands[0])
 
 def search_in_mappings(text_maps, needle):
@@ -325,69 +324,105 @@ if __name__ == "__main__":
         font_size = frame.m_treeList.GetFont().GetPixelSize()
         frame.m_treeList.SetColumnWidth(col=0, width=30 * font_size[0])
 
-        reader = pypdf.PdfReader(args.input)
-        for page_index, page in enumerate(reader.pages):
-            charmaps = get_char_maps(page)
-            context = Context(charmaps)
-            contents = page.get_contents()
-            # NOTE: contents may be None, ContentStream, EncodedStreamObject, ArrayObject
-            if (isinstance(contents, pypdf.generic._data_structures.ArrayObject)):
-                for content in contents:
-                    raise NotImplementedError(f"TODO: have the same as for the content stream here.")
-            elif (isinstance(contents, pypdf.generic._data_structures.ContentStream)):
-                content = contents
-                # transform plain operations to high-level objects
-                operations = [PDFOperation.from_tuple(ops, op, context) for ops, op in content.operations]
-                # flatten mapping into text
-                text = ""
-                for operation in operations:
-                    text += "".join([t for i,t in sorted(operation.text_map.items(), key=lambda e:e[0])])
-                print(text)
-                # search in text
-                matches = list(re.finditer(args.search, text))
-                for match in matches:
-                    print(match)
-                # look up which operations contributed to the match
-                text = ""
-                match = None
-                replacements = collections.defaultdict(list)
-                for operation in operations:
-                    for index, t in sorted(operation.text_map.items(), key=lambda e:e[0]):
-                        previous_length = len(text)
-                        text += t
-                        while (matches or match):
-                            if (matches):
-                                if (len(text) >= matches[0].start(0)):
-                                    match = matches[0]
-                                    matches.pop(0)
-                                    first_affected_operand_index = index
-                                else:
-                                    # match exists, but the current text does not reach the start
-                                    # quit looking here and get more text
-                                    break
-                            if (match):
-                                if (len(text) >= match.end(0)):
-                                    print()
-                                    print(f"{text[:match.start(0)]}»{text[match.start(0):match.end(0)]}«{text[match.end(0):]}".strip())
-                                    # as far as I know, newlines do not actually exist in the operations
-                                    # they have been added by us for visual representation, so they are stripped here
-                                    prefix = t[:match.start(0)-previous_length].strip("\n")
-                                    postfix = t[match.end(0)-previous_length:].strip("\n")
-                                    # TODO: also search and replace in postfix
-                                    print(f"prefix: „{prefix}“")
-                                    print(f"postfix: „{postfix}“")
-                                    print()
-                                    # TODO: combine Replacements if same operand is affected multiple times
-                                    replacements[operation].append(Replacement(first_affected_operand_index, index, prefix+args.replace+postfix))
-                                    match = None
-                                else:
-                                    # match exists, but the current text does not reach the end
-                                    # quit looking here and get more text
-                                    break
-                append_to_tree_list(operations, replacements, frame.m_treeList)
-            else:
-                raise NotImplementedError(f"Handling content of type {type(contents)} is not implemented.")
+    reader = pypdf.PdfReader(args.input)
+    writer = pypdf.PdfWriter()
+    for page_index, page in enumerate(reader.pages):
+        charmaps = get_char_maps(page)
+        context = Context(charmaps)
+        contents = page.get_contents()
+        # NOTE: contents may be None, ContentStream, EncodedStreamObject, ArrayObject
+        if (isinstance(contents, pypdf.generic._data_structures.ArrayObject)):
+            for content in contents:
+                raise NotImplementedError(f"TODO: have the same as for the content stream here.")
+        elif (isinstance(contents, pypdf.generic._data_structures.ContentStream)):
+            content = contents
+            # transform plain operations to high-level objects
+            operations = [PDFOperation.from_tuple(ops, op, context) for ops, op in content.operations]
+            # flatten mapping into text
+            text = ""
+            for operation in operations:
+                text += "".join([t for i,t in sorted(operation.text_map.items(), key=lambda e:e[0])])
+            print(text)
+            # search in text
+            matcher = re.compile(args.search)
+            matches = list(matcher.finditer(text))
+            for match in matches:
+                print(match)
+            # look up which operations contributed to the match
+            text = ""
+            match = None
+            affected_operations = collections.defaultdict(list)
+            for operation in operations:
+                for index, t in sorted(operation.text_map.items(), key=lambda e:e[0]):
+                    previous_length = len(text)
+                    text += t
+                    while (matches or match):
+                        if (matches):
+                            if (len(text) >= matches[0].start(0)):
+                                match = matches[0]
+                                matches.pop(0)
+                                first_affected_operand_index = index
+                            else:
+                                # match exists, but the current text does not reach the start
+                                # quit looking here and get more text
+                                break
+                        if (match):
+                            if (len(text) >= match.end(0)):
+                                print()
+                                print(f"{text[:match.start(0)]}»{text[match.start(0):match.end(0)]}«{text[match.end(0):]}".strip())
+                                # as far as I know, newlines do not actually exist in the operations
+                                # they have been added by us for visual representation, so they are stripped here
+                                prefix = t[:match.start(0)-previous_length].strip("\n")
+                                postfix = t[match.end(0)-previous_length:].strip("\n")
+                                # there probably is a more elegant way of doing this, but
+                                # since we will be processing backwards, the last postfix will override previous matches,
+                                # so we do the same replacements in the postfix again
+                                postfix = matcher.sub(args.replace, postfix) 
+                                print(f"prefix: „{prefix}“")
+                                print(f"infix: „{match.expand(args.replace)}“")
+                                print(f"postfix: „{postfix}“")
+                                print()
+                                # TODO: combine Replacements if same operand is affected multiple times
+                                affected_operations[operation].append(Replacement(first_affected_operand_index, index, prefix+match.expand(args.replace)+postfix))
+                                match = None
+                            else:
+                                # match exists, but the current text does not reach the end
+                                # quit looking here and get more text
+                                break
+            if (args.gui):
+                append_to_tree_list(operations, affected_operations, frame.m_treeList)
+            # do the replacements, but working backwards – else the indices would no longer match
+            for operation in reversed(operations):
+                print(f"Before replacements: {operation}")
+                replacements = []
+                if (operation in affected_operations):
+                    replacements = affected_operations[operation]
+                    for operand_index, operand in enumerate(operation.get_relevant_operands()):
+                        affection = ""
+                        for replacement in reversed(replacements):
+                            if (operand_index == replacement.first):
+                                affection += "⭰"
+                            if (operand_index > replacement.first and operand_index < replacement.last):
+                                affection += "×"
+                            if (operand_index == replacement.last):
+                                affection += "⭲"
+                        if ("⭰" in affection):
+                            operation.set_text(replacement.text, replacement.first, replacement.last)
+                        if ("⭲" in affection and not "⭰" in affection):
+                            operation.get_relevant_operands().remove(operand_index)
+                        if ("×" in affection):
+                            operation.get_relevant_operands().remove(operand_index)
+                print(f"After replacements:  {operation}")
+        else:
+            raise NotImplementedError(f"Handling content of type {type(contents)} is not implemented.")
 
+        page.replace_contents(contents)
+        writer.add_page(page)
+
+    if (args.output):
+        writer.write(args.output)
+
+    if (args.gui):
         frame.Show()
         app.MainLoop()
         
