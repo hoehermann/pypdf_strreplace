@@ -250,14 +250,13 @@ def schedule_changes(operations, matches, args_replace):
                             first_operation.scheduled_change = Change()
                             print(f"{first_operation} must be changed.")
                             if (operation != first_operation):
-                                print(f"Current operation is not first first_operation.")
-                                operand_changes = set([c.__class__.__name__ if c else c for c in [getattr(op, "scheduled_change", None) for op in operation.get_relevant_operands()]])
-                                if (operand_changes-set([Delete.__name__])):
-                                    print(f"But not all operands are going to be deleted – so the operation must be changed.")
-                                    operation.scheduled_change = Change()
-                                else:
-                                    print(f"All operands will be deleted – the operation must be deleted as well.")
-                                    operation.scheduled_change = Delete()
+                                print(f"Current operation is not first operation and is marked to be deleted.")
+                                operation.scheduled_change = Delete() # Tj and Td cannot function with fewer operands
+                                if (operation.operator in ["TJ"]):
+                                    operand_changes = set([c.__class__.__name__ if c else c for c in [getattr(op, "scheduled_change", None) for op in operation.get_relevant_operands()]])
+                                    if (operand_changes-set([Delete.__name__])):
+                                        print(f"But wait: Not all the operation's operands are going to be deleted! The operation must be changed, not deleted.")
+                                        operation.scheduled_change = Change()
                             # match complete – reset
                             match = None
                             first_operation = None
@@ -270,8 +269,8 @@ def schedule_changes(operations, matches, args_replace):
             if (operation.operator in ["TJ", "Tj"] and first_operand is not None and not hasattr(operand, "scheduled_change")):
                 # delete operands containing replaced text
                 operand.scheduled_change = Delete()
-        # maybe narrow down with operation.operator in ["TJ", "Tj", "Tf"]
         if (first_operation is not None and not hasattr(operation, "scheduled_change")):
+            # TODO: Td operations should not be deleted but moved behind the change or rather in directly front of the next later Td, see test "xelatex_multiple_operations"
             operation.scheduled_change = Delete()
 
 def replace_text(content, args_search, args_replace, gui_treeList):
@@ -294,16 +293,16 @@ def replace_text(content, args_search, args_replace, gui_treeList):
         for operation_index, operation in reversed(list(enumerate(operations))):
             operation_change = getattr(operation, "scheduled_change", None)
             if (operation_change):
-                operation_change.apply(operation, operation_index, operations)
-                if (operation in operations):
+                operation_change.apply(None, operation_index, content.operations)
+                if (isinstance(operation_change, Delete)):
+                    print(f"Deleted: {operation}")
+                else:
                     print(f"Before replacements: {operation}")
                     for operand_index, operand in reversed(list(enumerate(operation.get_relevant_operands()))):
                         operand_change = getattr(operand, "scheduled_change", None)
                         if (operand_change):
                             operand_change.apply(operation, operand_index, operation.get_relevant_operands())
                     print(f"After replacements:  {operation}")
-                else:
-                    print(f"Deleted: {operation}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Replace text in a PDF file.')
