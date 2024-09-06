@@ -37,7 +37,11 @@ class CharMap:
             # decoding with ascii is a wild guess
             return "".join(text.get_original_bytes().decode('ascii').translate(str.maketrans(self.map)))
         elif (isinstance(text, TextStringObject) and isinstance(self.encoding, str) and self.map):
-            return "".join(text.get_original_bytes().decode(self.encoding).translate(str.maketrans(self.map)))
+            # it looks like utf-16 is decoded by pypdf but not quite and I am confused and this is a total guess
+            encoding = self.encoding
+            if (self.encoding == "utf-16-be"):
+                encoding = "utf-8"
+            return "".join(text.get_original_bytes().decode(encoding).translate(str.maketrans(self.map)))
         elif (isinstance(text, ByteStringObject)):
             return "".join(text.decode(self.encoding).translate(str.maketrans(self.map)))
         else:
