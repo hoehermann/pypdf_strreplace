@@ -32,6 +32,8 @@ Then specify search text and replacement text:
     pypdf_strreplace.py --input pdfs/Inkscape.pdf --search "Inkscape 1.1.2" --replace "pleasure" --output out.pdf 
     pypdf_strreplace.py --input pdfs/LibreOffice.pdf --search "7.3.2" --replace "infinite" --output out.pdf
 
+With `--debug-ui`, a GUI is shown which helps understanding the content stream structure. Completely optional. Needs wxPython.
+
 ### License
 
 Since some parts of the code are modified variants of PyPDF, the license is copied from PyPDF.
