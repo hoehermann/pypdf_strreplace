@@ -83,7 +83,6 @@ class PDFOperation:
         self.operands = operands
         self.operator = operator
         self.context = context
-        self.text_map = {}
     @classmethod
     def from_tuple(cls, operands, operator, context:Context):
         operator = operator.decode('ascii') # PDF operators are indeed ascii encoded
@@ -111,38 +110,38 @@ class PDFOperationTf(PDFOperation):
 class PDFOperationTd(PDFOperation):
     def __init__(self, operands, context:Context):
         super().__init__(operands, "Td", None)
-        self._populate_text_map()
+        self._infer_plain_text()
     def __str__(self):
         return f"{self.operands} {self.operator}"
-    def _populate_text_map(self):
+    def _infer_plain_text(self):
         tx, ty = self.operands
         if (ty != 0):
             # consider a vertical adjustment starting a new line
-            self.text_map[1] = "\n"
+            ty.plain_text = "\n"
         elif (tx != 0):
             # interpret horizontal adjustment as space. total guess. works for the xelatex sample.
-            self.text_map[0] = " "
+            tx.plain_text = " "
         return map
 class PDFOperationTJ(PDFOperation):
     def __init__(self, operands:list[list[Union[TextStringObject,ByteStringObject,NumberObject]]], context:Context):
         if (len(operands) != 1):
             raise ValueError(f"PDFOperationTJ expects one non-empty Array of Array")
         super().__init__(operands, "TJ", context.clone_shared_charmaps())
-        self._populate_text_map()
+        self._infer_plain_text()
         object_types = set([operand.__class__ for operand in operands])-set([NumberObject.__class__])
         if (len(object_types) > 1):
             raise NotImplementedError(f"Cannot handle Operations with mixed string object types {str(object_types)}.")
     def __str__(self):
         return f"„{self.get_relevant_operands()}“ {self.operator}"
-    def _populate_text_map(self):
-        for index, operand in enumerate(self.get_relevant_operands()):
+    def _infer_plain_text(self):
+        for operand in self.get_relevant_operands():
             if (isinstance(operand, NumberObject) or isinstance(operand, FloatObject)):
                 halfspace = self.context.charmaps[self.context.font].halfspace
                 if (operand < -halfspace):
                     # interpret big horizontal adjustment as space. total guess. works for the xelatex sample.
-                    self.text_map[index] = " "
+                    operand.plain_text = " "
             else:
-                self.text_map[index] = self.context.charmaps[self.context.font].decode(operand)
+                operand.plain_text = self.context.charmaps[self.context.font].decode(operand)
     def get_relevant_operands(self):
         return self.operands[0]
     def set_operand_text(self, text, index):
@@ -157,11 +156,11 @@ class PDFOperationTj(PDFOperation):
         if (len(operands) != 1):
             raise ValueError(f"PDFOperationTj expects one non-empty Array of TextStringObject")
         super().__init__(operands, "Tj", context.clone_shared_charmaps())
-        self._populate_text_map()
+        self._infer_plain_text()
     def __str__(self):
         return f"„{self.get_relevant_operands()}“ {self.operator}"
-    def _populate_text_map(self):
-        self.text_map[0] = self.context.charmaps[self.context.font].decode(self.operands[0])
+    def _infer_plain_text(self):
+        self.operands[0].plain_text = self.context.charmaps[self.context.font].decode(self.operands[0])
     def get_relevant_operands(self):
         return self.operands
     def set_operand_text(self, text, index):
@@ -175,11 +174,10 @@ def append_to_tree_list(operations, tree_list):
             continue # only show operations relevant to text processing
         operation_node = tree_list.AppendItem(root, operation.operator)
         tree_list.SetItemText(operation_node, 3, str(getattr(operation, "scheduled_change", "")))
-        for operand_index, operand in enumerate(operation.get_relevant_operands()):
+        for operand in operation.get_relevant_operands():
             operand_node = tree_list.AppendItem(operation_node, str(operand))
             tree_list.SetItemText(operand_node, 1, str(type(operand).__name__))
-            if (operand_index in operation.text_map):
-                tree_list.SetItemText(operand_node, 2, operation.text_map[operand_index].replace(" ","␣").replace("\n","↲")) # might also consider ␊
+            tree_list.SetItemText(operand_node, 2, getattr(operand, "plain_text", "").replace(" ","␣").replace("\n","↲")) # might also consider ␊ for visualising line breaks
             tree_list.SetItemText(operand_node, 3, str(getattr(operand, "scheduled_change", "")))
         if (operation.operator in ["Td", "Tj", "TJ"]): # only expand operators relevant to text
             tree_list.Expand(operation_node)
@@ -188,7 +186,7 @@ def append_to_tree_list(operations, tree_list):
 def extract_text(operations: List[PDFOperation]):
     text = ""
     for operation in operations:
-        text += "".join([t for i,t in sorted(operation.text_map.items(), key=lambda e:e[0])])
+        text += "".join([getattr(operand, "plain_text", "") for operand in operation.operands])
     return text
     print(text)
 
@@ -213,18 +211,17 @@ def schedule_changes(operations, matches, args_replace):
     first_operation = None
     first_operand = None
     for operation in operations:
-        for operand_index, operand in enumerate(operation.get_relevant_operands()):
-            if (operand_index in operation.text_map):
-                operand_text = operation.text_map[operand_index]
+        for operand in operation.get_relevant_operands():
+            if (hasattr(operand, "plain_text")):
                 previous_length = len(text)
-                text += operand_text
+                text += operand.plain_text
                 while (matches or match):
                     if (matches):
                         if (len(text) > matches[0].start(0)):
                             match = matches[0]
                             matches.pop(0)
                             # newlines do not actually occur in the PDF. they have been added by us for visual representation. they must be removed here
-                            prefix = operand_text[:match.start(0)-previous_length].strip("\n")
+                            prefix = operand.plain_text[:match.start(0)-previous_length].strip("\n")
                             # one operand might contain multiple matches. since we are focussing on the current match, we must re-do the search and replace in the prefix
                             prefix = match.re.sub(args_replace, prefix) if args_replace else prefix
                             first_operation = operation
@@ -235,7 +232,7 @@ def schedule_changes(operations, matches, args_replace):
                             break
                     if (match):
                         if (len(text) >= match.end(0)):
-                            postfix = operand_text[match.end(0)-previous_length:].strip("\n") # see prefix
+                            postfix = operand.plain_text[match.end(0)-previous_length:].strip("\n") # see prefix
                             postfix = match.re.sub(args_replace, postfix) if args_replace else postfix # see prefix
                             print()
                             print(f"{text[:match.start(0)]}»{text[match.start(0):match.end(0)]}«{text[match.end(0):]}".strip())
