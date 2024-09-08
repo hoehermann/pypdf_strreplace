@@ -186,9 +186,8 @@ def append_to_tree_list(operations, tree_list):
 def extract_text(operations: List[PDFOperation]):
     text = ""
     for operation in operations:
-        text += "".join([getattr(operand, "plain_text", "") for operand in operation.operands])
+        text += "".join([getattr(operand, "plain_text", "") for operand in operation.get_relevant_operands()])
     return text
-    print(text)
 
 class Change:
     def __str__(self):
@@ -275,12 +274,15 @@ def replace_text(content, args_search, args_replace, gui_treeList):
     operations = [PDFOperation.from_tuple(ops, op, context) for ops, op in content.operations]
     # flatten mappings into one plain text string
     text = extract_text(operations)
+    print("# These are the lines this tool might be able to handle:")
     print(text)
+    matches = []
+    if (args_search):
     # search in text
-    matcher = re.compile(args_search)
-    matches = list(matcher.finditer(text))
-    for match in matches:
-        print(match)
+        matcher = re.compile(args_search)
+        matches = list(matcher.finditer(text))
+        for match in matches:
+            print(match)
     # look up which operations contributed to each match
     schedule_changes(operations, matches, args_replace)
     if (gui_treeList):
