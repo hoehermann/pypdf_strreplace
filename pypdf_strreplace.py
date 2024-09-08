@@ -222,20 +222,6 @@ def schedule_changes(operations, matches, args_replace):
                 previous_length = len(text)
                 text += operand.plain_text
                 while (matches or match):
-                    if (matches):
-                        if (len(text) > matches[0].start(0)):
-                            match = matches[0]
-                            matches.pop(0)
-                            # newlines do not actually occur in the PDF. they have been added by us for visual representation. they must be removed here
-                            prefix = operand.plain_text[:match.start(0)-previous_length].strip("\n")
-                            # one operand might contain multiple matches. since we are focussing on the current match, we must re-do the search and replace in the prefix
-                            prefix = match.re.sub(args_replace, prefix) if args_replace else prefix
-                            first_operation = operation
-                            first_operand = operand
-                        else:
-                            # match exists, but the current text does not reach the start
-                            # quit looking here and get more text
-                            break
                     if (match):
                         if (len(text) >= match.end(0)):
                             # we have enough text to cover the end of the current match
@@ -267,6 +253,20 @@ def schedule_changes(operations, matches, args_replace):
                             first_operand = None
                         else:
                             # match exists, but the current text does not reach the end
+                            # quit looking here and get more text
+                            break
+                    if (matches):
+                        if (len(text) > matches[0].start(0)):
+                            match = matches[0]
+                            matches.pop(0)
+                            # newlines do not actually occur in the PDF. they have been added by us for visual representation. they must be removed here
+                            prefix = operand.plain_text[:match.start(0)-previous_length].strip("\n")
+                            # one operand might contain multiple matches. since we are focussing on the current match, we must re-do the search and replace in the prefix
+                            prefix = match.re.sub(args_replace, prefix) if args_replace else prefix
+                            first_operation = operation
+                            first_operand = operand
+                        else:
+                            # match exists, but the current text does not reach the start
                             # quit looking here and get more text
                             break
             if (operation.operator in ["TJ", "Tj"] and first_operand is not None and not hasattr(operand, "scheduled_change")):
@@ -374,8 +374,8 @@ if __name__ == "__main__":
     if (args.output):
         writer.write(args.output)
 
-    if (args.replace):
-        print(f"Replaced {total_replacements} occurrences.")
+    if (args.search):
+        print(f"There are {total_replacements} occurrences.")
 
     if (args.debug_ui):
         frame.Show()
