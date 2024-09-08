@@ -192,17 +192,23 @@ def extract_text(operations: List[PDFOperation]):
 class Change:
     def __str__(self):
         return self.__class__.__name__
-    def apply(self, element, index, collection):
+    def apply(self, element=None, index=None, collection=None):
         pass
 class Delete(Change):
-    def apply(self, element, index, collection):
+    def apply(self, element=None, index:int=None, collection:List[Tuple]=None):
         collection.pop(index)
+class Cluster(Change):
+    def apply(self, element:Tuple=None, index:int=None, collection:List[Tuple]=None):
+        element = collection.pop(index)
+        target_index = next((i for i,e in enumerate(collection) if i >=index and e[1] == element[1]), None)
+        if (target_index is not None):
+            collection.insert(target_index, element)
 class Text(Change):
     def __init__(self, text):
         self.text = text
     def __str__(self):
         return f"Set text to „{self.text}“"
-    def apply(self, element, index, collection):
+    def apply(self, element=None, index=None, collection=None):
         element.set_operand_text(self.text, index)
 def schedule_changes(operations, matches, args_replace):
     text = ""
@@ -266,12 +272,13 @@ def schedule_changes(operations, matches, args_replace):
                 # delete operands containing replaced text
                 operand.scheduled_change = Delete()
         if (first_operation is not None and not hasattr(operation, "scheduled_change")):
-            # TODO: Td operations should not be deleted but moved behind the change or rather in directly front of the next later Td, see test "xelatex_multiple_operations"
             operation.scheduled_change = Delete()
+        if (isinstance(getattr(operation, "scheduled_change", None), Delete) and operation.operator == "Td"):
+            operation.scheduled_change = Cluster()
 
 def replace_text(content, args_search, args_replace, gui_treeList):
     # transform plain operations to high-level objects
-    operations = [PDFOperation.from_tuple(ops, op, context) for ops, op in content.operations]
+    operations = [PDFOperation.from_tuple(operands, operator, context) for operands, operator in content.operations]
     # flatten mappings into one plain text string
     text = extract_text(operations)
     print("# These are the lines this tool might be able to handle:")
@@ -292,9 +299,11 @@ def replace_text(content, args_search, args_replace, gui_treeList):
         for operation_index, operation in reversed(list(enumerate(operations))):
             operation_change = getattr(operation, "scheduled_change", None)
             if (operation_change):
-                operation_change.apply(None, operation_index, content.operations)
+                operation_change.apply(index=operation_index, collection=content.operations)
                 if (isinstance(operation_change, Delete)):
                     print(f"Deleted: {operation}")
+                elif (isinstance(operation_change, Cluster)):
+                    print(f"Moving together: {operation}")
                 else:
                     print(f"Before replacements: {operation}")
                     for operand_index, operand in reversed(list(enumerate(operation.get_relevant_operands()))):
