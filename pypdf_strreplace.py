@@ -210,7 +210,7 @@ class Text(Change):
         return f"Set text to „{self.text}“"
     def apply(self, element=None, index=None, collection=None):
         element.set_operand_text(self.text, index)
-def schedule_changes(operations, matches, args_replace):
+def schedule_replacements(operations, matches, args_replace):
     text = ""
     match = None
     matches = matches[:]
@@ -279,8 +279,15 @@ def schedule_changes(operations, matches, args_replace):
         if (isinstance(getattr(operation, "scheduled_change", None), Delete) and operation.operator == "Td"):
             # Td movement operations should not be deleted, but rather grouped together and moved behind the replacement
             operation.scheduled_change = Cluster()
+def schedule_deletion(operations):
+    """Schedule deletion of all text-related operations.
+    
+    Useful for redacting a document entirely while maintaining design."""
+    for operation in operations:
+        if (operation.operator in ["TJ", "Tj", "Td", "Tf"]):
+            operation.scheduled_change = Delete()
 
-def replace_text(content, args_search, args_replace, gui_treeList):
+def replace_text(content, args_search, args_replace, args_delete, gui_treeList):
     # transform plain operations to high-level objects
     operations = [PDFOperation.from_tuple(operands, operator, context) for operands, operator in content.operations]
     
@@ -292,19 +299,22 @@ def replace_text(content, args_search, args_replace, gui_treeList):
         # search in text
         matcher = re.compile(args_search)
         matches = list(matcher.finditer(text))
-    else:
+    elif (not args_delete):
         # just print
         print("# These are the lines this tool might be able to handle:")
         print(text)
 
-    # look up which operations contributed to each match
-    schedule_changes(operations, matches, args_replace)
+    if (args_delete):
+        schedule_deletion(operations)
+    else:
+        # look up which operations contributed to each match and schedule to replace them
+        schedule_replacements(operations, matches, args_replace)
     
     # visualize content stream structure and scheduled changes
     if (gui_treeList):
         append_to_tree_list(operations, gui_treeList)
 
-    if (args_replace):
+    if (args_replace or args_delete):
         # do the replacements, but working backwards – else the indices would no longer match
         # we iterate over the list of high-level operations, but we modify the pypdf low-level operations
         for operation_index, operation in reversed(list(enumerate(operations))):
@@ -333,6 +343,7 @@ if __name__ == "__main__":
     parser.add_argument('--output', type=str)
     parser.add_argument('--search', type=str)
     parser.add_argument('--replace', type=str)
+    parser.add_argument('--delete', action='store_true')
     parser.add_argument('--debug-ui', action='store_true')
     args = parser.parse_args()
     
@@ -362,9 +373,9 @@ if __name__ == "__main__":
         # NOTE: contents may be None, ContentStream, EncodedStreamObject, ArrayObject
         if (isinstance(contents, pypdf.generic._data_structures.ArrayObject)):
             for content in contents:
-                total_replacements += replace_text(content, args.search, args.replace, gui_treeList)
+                total_replacements += replace_text(content, args.search, args.replace, args.delete, gui_treeList)
         elif (isinstance(contents, pypdf.generic._data_structures.ContentStream)):
-            total_replacements += replace_text(contents, args.search, args.replace, gui_treeList)
+            total_replacements += replace_text(contents, args.search, args.replace, args.delete, gui_treeList)
         else:
             raise NotImplementedError(f"Handling content of type {type(contents)} is not implemented.")
 
