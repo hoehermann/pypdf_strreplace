@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
+try:
+    import pypdf
+except ModuleNotFoundError:
+    print("pypdf 5.x.x is needed.")
+if (int(pypdf.__version__.split(".")[0]) != 5):
+    print("pypdf 5.x.x is needed.")
 import argparse
 import sys
 import io
 import binascii
-import pypdf
 from typing import Any, Callable, Dict, Tuple, Union, List, cast
 from pypdf.generic import DictionaryObject, NameObject, ContentStream, ArrayObject
 from pypdf.generic._base import TextStringObject, ByteStringObject, NumberObject, FloatObject
@@ -37,11 +42,7 @@ class CharMap:
             # decoding with ascii is a wild guess
             return "".join(text.get_original_bytes().decode('ascii').translate(str.maketrans(self.map)))
         elif (isinstance(text, TextStringObject) and isinstance(self.encoding, str) and self.map):
-            # it looks like utf-16 is decoded by pypdf but not quite and I am confused and this is a total guess
-            encoding = self.encoding
-            if (self.encoding == "utf-16-be"):
-                encoding = "utf-8"
-            return "".join(text.get_original_bytes().decode(encoding).translate(str.maketrans(self.map)))
+            return "".join(text.get_original_bytes().decode(self.encoding).translate(str.maketrans(self.map))).replace("\ufeff","")
         elif (isinstance(text, ByteStringObject)):
             return "".join(text.decode(self.encoding).translate(str.maketrans(self.map)))
         else:
@@ -53,6 +54,9 @@ class CharMap:
         elif (self.encoding == "charmap"):
             map = {v:k for k,v in self.map.items()}
             return ByteStringObject(text.translate(ExceptionalTranslator(map)).encode('ascii')) # encoding with ascii is a wild guess
+        elif (isinstance(reference, TextStringObject) and isinstance(self.encoding, str) and self.map):
+            map = {v:k for k,v in self.map.items() if not isinstance(v,str) or len(v) == 1}
+            return TextStringObject(text.translate(str.maketrans(map)).encode(self.encoding))
         elif (isinstance(reference, ByteStringObject)):
             map = {v:k for k,v in self.map.items() if not isinstance(v,str) or len(v) == 1}
             return ByteStringObject(text.translate(str.maketrans(map)).encode(self.encoding)) # TODO: use ExceptionalTranslator here, too?
