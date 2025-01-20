@@ -1,29 +1,32 @@
 cd "$(dirname "$0")"/..
 
+if ! gm -version > /dev/null
+then
+    echo -e "\033[31;1mGraphicsMagick is not installed.\033[0m"
+    exit 1
+fi
+
 do_test() {
     echo "Test $@…"
-    tmpdir="$(mktemp -d "/tmp/test.$1.XXXXXXXXXX,")"
-    timeout --verbose 1 python3 pypdf_strreplace.py --output "$tmpdir"/"$1".pdf --input pdfs/"$2".pdf --search "$3" --replace "$4" > "$tmpdir"/messages.log
-    #atril "$tmpdir"/"$1".pdf
-    convert -density 150 -alpha off "$tmpdir"/"$1".pdf -compress LZW "$tmpdir"/"$1".tiff
-    pages_count=$(identify "$tmpdir"/"$1".tiff | wc -l)
-    total_difference=0
+    tmpdir="$(mktemp -d "/tmp/test.$1.XXXXXXXXXX")"
+    timeout --verbose 1 python3 pypdf_strreplace.py --output "$tmpdir"/output.pdf --input pdfs/"$2".pdf --search "$3" --replace "$4" > "$tmpdir"/messages.log
+    gm convert -background white -extent 0x0 -density 150 +matte test/"$1".pdf "$tmpdir"/reference.tiff
+    gm convert -background white -extent 0x0 -density 150 +matte "$tmpdir"/output.pdf "$tmpdir"/output.tiff
+    pages_count=$(gm identify "$tmpdir"/output.tiff | wc -l)
     for i in $(seq 0 $(($pages_count - 1)))
-    do
-        difference=$(compare -alpha off test/"$1".tiff[$i] "$tmpdir"/"$1".tiff[$i] -metric AE "$tmpdir"/compare-result_$i.pgm 2>&1)
-        echo "Difference: $difference on page $i"
-        total_difference=$(($total_difference + $difference))
+    do 
+        if gm compare "$tmpdir"/reference.tiff[$i] "$tmpdir"/output.tiff[$i] -metric PAE -maximum-error 0 > "$tmpdir"/messages.log
+        then
+            echo "Page $i OK"
+        else
+            echo -e "\033[31;1mTest failed!\033[0m"
+        fi
     done
-    if [[ $total_difference -gt 0 ]]
-    then
-        echo -e "\033[31;1mTest failed!\033[0m"
-    else
-        rm -r "$tmpdir"
-    fi
+    rm -r "$tmpdir"
 }
 
 # simple tests (affect only one operand in one operation)
-do_test "inkscape_simple" "Inkscape" "Inkscape 1.1.2"  "pleasure"
+do_test "inkscape_simple" "Inkscape" "Inkscape 1.1.2" "pleasure"
 do_test "libreoffice_simple" "LibreOffice" "7.3.2" "infinite"
 do_test "dmytryo_simple" "Dmytro" "PDF" "DOC"
 do_test "xelatex_simple" "xelatex" "symbol" "character"
