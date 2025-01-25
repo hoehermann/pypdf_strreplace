@@ -348,6 +348,7 @@ if __name__ == "__main__":
     parser.add_argument('--search', type=str)
     parser.add_argument('--replace', type=str)
     parser.add_argument('--delete', action='store_true')
+    parser.add_argument('--compress', action='store_true', help='Compress output.')
     parser.add_argument('--debug-ui', action='store_true')
     args = parser.parse_args()
     
@@ -387,6 +388,9 @@ if __name__ == "__main__":
         writer.add_page(page)
 
     if (args.output):
+        if (args.compress):
+            for page in writer.pages:
+                page.compress_content_streams()
         writer.write(args.output)
 
     if (args.search):
