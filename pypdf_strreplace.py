@@ -34,7 +34,7 @@ class CharMap:
     def from_char_map(cls, subtype:str, halfspace:float, encoding:Union[str, Dict[int, str]], map:Dict[str, str], ft:DictionaryObject):
         return cls(subtype, halfspace, encoding, map, ft)
     def decode(self, text:Union[TextStringObject,ByteStringObject]):
-        #print("Decoding", text.get_original_bytes(), "with this map:")
+        #print(f"Decoding „{text.get_original_bytes()}“ with this map:")
         #pprint.pprint(self.map)
         if (isinstance(self.encoding, dict)):
             return str(text) # it looks like pypdf applies the encoding dict automatically
@@ -42,7 +42,7 @@ class CharMap:
             # decoding with ascii is a wild guess
             return "".join(text.get_original_bytes().decode('ascii').translate(str.maketrans(self.map)))
         elif (isinstance(text, TextStringObject) and isinstance(self.encoding, str) and self.map):
-            return "".join(text.get_original_bytes().decode(self.encoding).translate(str.maketrans(self.map))).replace("\ufeff","")
+            return "".join(text.get_original_bytes().decode(self.encoding).translate(str.maketrans(self.map))).lstrip("\ufeff") # strip BOM
         elif (isinstance(text, ByteStringObject)):
             return "".join(text.decode(self.encoding).translate(str.maketrans(self.map)))
         else:
@@ -56,6 +56,7 @@ class CharMap:
             return ByteStringObject(text.translate(ExceptionalTranslator(map)).encode('ascii')) # encoding with ascii is a wild guess
         elif (isinstance(reference, TextStringObject) and isinstance(self.encoding, str) and self.map):
             map = {v:k for k,v in self.map.items() if not isinstance(v,str) or len(v) == 1}
+            # TODO: find out if BOM needs to be added in case it was stripped (see decode)
             return TextStringObject(text.translate(str.maketrans(map)).encode(self.encoding))
         elif (isinstance(reference, ByteStringObject)):
             map = {v:k for k,v in self.map.items() if not isinstance(v,str) or len(v) == 1}
@@ -202,6 +203,7 @@ class Delete(Change):
     def apply(self, element=None, index:int=None, collection:List[Tuple]=None):
         collection.pop(index)
 class Cluster(Change):
+    # this Change moves the element (operand) directly in front of the next operand of the same type, creating a cluster
     def apply(self, element:Tuple=None, index:int=None, collection:List[Tuple]=None):
         element = collection.pop(index)
         target_index = next((i for i,e in enumerate(collection) if i >=index and e[1] == element[1]), None)
