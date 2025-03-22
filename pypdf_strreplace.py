@@ -3,8 +3,9 @@ try:
     import pypdf
 except ModuleNotFoundError:
     print("pypdf 5.x.x is needed.")
+    raise
 if (int(pypdf.__version__.split(".")[0]) != 5):
-    print("pypdf 5.x.x is needed.")
+    raise ModuleNotFoundError(f"pypdf 5.x.x is needed. You have {pypdf.__version__}.")
 import argparse
 import sys
 import io
@@ -232,8 +233,8 @@ def schedule_replacements(operations, matches, args_replace):
                         if (len(text) >= match.end(0)):
                             # we have enough text to cover the end of the current match
                             postfix = operand.plain_text[match.end(0)-previous_length:].strip("\n") # see prefix
-                            postfix = match.re.sub(args_replace, postfix) if args_replace else postfix # see prefix
-                            new_text = prefix+match.expand(args_replace)+postfix if args_replace else prefix+match.group(0)+postfix
+                            postfix = match.re.sub(args_replace, postfix) if args_replace is not None else postfix # see prefix
+                            new_text = prefix+match.expand(args_replace)+postfix if args_replace is not None else prefix+match.group(0)+postfix
                             first_operand.scheduled_change = Text(new_text)
                             if (operand != first_operand):
                                 # the match spans multiple operands
@@ -268,7 +269,7 @@ def schedule_replacements(operations, matches, args_replace):
                             # newlines do not actually occur in the PDF. they have been added by us for visual representation. they must be removed here
                             prefix = operand.plain_text[:match.start(0)-previous_length].strip("\n")
                             # one operand might contain multiple matches. since we are focussing on the current match, we must re-do the search and replace in the prefix
-                            prefix = match.re.sub(args_replace, prefix) if args_replace else prefix
+                            prefix = match.re.sub(args_replace, prefix) if args_replace is not None else prefix
                             first_operation = operation
                             first_operand = operand
                         else:
@@ -301,26 +302,26 @@ def replace_text(content, args_search, args_replace, args_delete, gui_treeList):
     text = extract_text(operations)
 
     matches = []
+    if (args_search is None and args_delete is True):
+        # just print
+        print("# These are the lines this tool might be able to handle:")
+        print(text)
     if (args_search):
         # search in text
         matcher = re.compile(args_search)
         matches = list(matcher.finditer(text))
-    elif (not args_delete):
-        # just print
-        print("# These are the lines this tool might be able to handle:")
-        print(text)
 
-    if (args_delete):
-        schedule_deletion(operations)
-    else:
+    if (args_search is not None and args_delete is False):
         # look up which operations contributed to each match and schedule to replace them
         schedule_replacements(operations, matches, args_replace)
+    if (args_delete):
+        schedule_deletion(operations)
     
     # visualize content stream structure and scheduled changes
     if (gui_treeList):
         append_to_tree_list(operations, gui_treeList)
 
-    if (args_replace or args_delete):
+    if (args_replace is not None or args_delete is True):
         # do the replacements, but working backwards – else the indices would no longer match
         # we iterate over the list of high-level operations, but we modify the pypdf low-level operations
         for operation_index, operation in reversed(list(enumerate(operations))):
@@ -344,14 +345,14 @@ def replace_text(content, args_search, args_replace, args_delete, gui_treeList):
     return len(matches) # return amount of matches – which is hopefully the amount of replacements (mind the postfixes!)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Replace text in a PDF file.')
-    parser.add_argument('--input', type=str, required=True)
-    parser.add_argument('--output', type=str)
-    parser.add_argument('--search', type=str)
-    parser.add_argument('--replace', type=str)
-    parser.add_argument('--delete', action='store_true')
+    parser = argparse.ArgumentParser(description="Replace text in a PDF file.")
+    parser.add_argument("--input", type=str, required=True, help="Path to the input PDF file.")
+    parser.add_argument("--output", type=str, help="Path to the output PDF file.")
+    parser.add_argument("--search", type=str, help="Regular expression to search for.")
+    parser.add_argument("--replace", type=str, help="Replacement text.")
+    parser.add_argument("--delete", action="store_true", help="Do not search. Delete all text.")
     parser.add_argument('--compress', action='store_true', help='Compress output.')
-    parser.add_argument('--debug-ui', action='store_true')
+    parser.add_argument("--debug-ui", action="store_true", help="Show debug interface.")
     args = parser.parse_args()
     
     gui_treeList = None
@@ -373,7 +374,7 @@ if __name__ == "__main__":
     writer = pypdf.PdfWriter()
     for page_index, page in enumerate(reader.pages):
         charmaps = get_char_maps(page)
-        if (not args.search):
+        if (args.search is None):
             print(f"# These fonts are referenced on page {page_index+1}: {', '.join([cm.ft['/BaseFont'] for cm in charmaps.values()])}")
         context = Context(charmaps)
         contents = page.get_contents()
