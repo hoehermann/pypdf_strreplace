@@ -20,12 +20,16 @@ import pprint
 import collections
 
 class ExceptionalTranslator:
-    def __init__(self, map):
+    def __init__(self, map, font):
         self.trans = str.maketrans(map)
+        self.font = font
     def __getitem__(self, key):
         if key not in self.trans.keys():
-            error_message = f"Replacement character »{chr(key)}« (ordinal {key}) is not available in this document." # error message on separate line to avoid confusion with the acutal string „key“
-            raise ValueError(error_message)
+            if (key == 32):
+                print("WARNING: Missing space glyph.")
+            else:
+                error_message = f"Replacement glyph »{chr(key)}« (ordinal {key}) is not available in this document for font {self.font}." # error message on separate line to avoid confusion with the acutal string „key“
+                raise ValueError(error_message)
         return self.trans.__getitem__(key)
 
 class CharMap:
@@ -54,14 +58,14 @@ class CharMap:
             return TextStringObject(text)
         elif (self.encoding == "charmap"):
             map = {v:k for k,v in self.map.items()}
-            return ByteStringObject(text.translate(ExceptionalTranslator(map)).encode('ascii')) # encoding with ascii is a wild guess
+            return ByteStringObject(text.translate(ExceptionalTranslator(map, self.ft['/BaseFont'])).encode('ascii')) # encoding with ascii is a wild guess
         elif (isinstance(reference, TextStringObject) and isinstance(self.encoding, str) and self.map):
             map = {v:k for k,v in self.map.items() if not isinstance(v,str) or len(v) == 1}
             # TODO: find out if BOM needs to be added in case it was stripped (see decode)
-            return TextStringObject(text.translate(str.maketrans(map)).encode(self.encoding))
+            return TextStringObject(text.translate(ExceptionalTranslator(map, self.ft['/BaseFont'])).encode(self.encoding))
         elif (isinstance(reference, ByteStringObject)):
             map = {v:k for k,v in self.map.items() if not isinstance(v,str) or len(v) == 1}
-            return ByteStringObject(text.translate(str.maketrans(map)).encode(self.encoding)) # TODO: use ExceptionalTranslator here, too?
+            return ByteStringObject(text.translate(ExceptionalTranslator(map, self.ft['/BaseFont'])).encode(self.encoding))
         else:
             raise NotImplementedError(f"Cannot encode this {type(self.encoding)} encoding: {self.encoding}")
 
