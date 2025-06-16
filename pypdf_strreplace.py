@@ -298,7 +298,7 @@ def schedule_deletion(operations):
         if (operation.operator in ["TJ", "Tj", "Td", "Tf"]):
             operation.scheduled_change = Delete()
 
-def replace_text(content, args_search, args_replace, args_delete, gui_treeList):
+def replace_text(content, args_search, args_replace, args_delete, args_indexes, gui_treeList):
     # transform plain operations to high-level objects
     operations = [PDFOperation.from_tuple(operands, operator, context) for operands, operator in content.operations]
     
@@ -314,6 +314,13 @@ def replace_text(content, args_search, args_replace, args_delete, gui_treeList):
         # search in text
         matcher = re.compile(args_search)
         matches = list(matcher.finditer(text))
+
+    n_matches = []
+    if (len(args_indexes) > 0):
+        for i in range(len(matches)):
+            if i in args_indexes:
+                n_matches += [matches[i]]
+        matches = n_matches
 
     if (args_search is not None and args_delete is False):
         # look up which operations contributed to each match and schedule to replace them
@@ -357,9 +364,11 @@ if __name__ == "__main__":
     parser.add_argument("--delete", action="store_true", help="Do not search. Delete all text.")
     parser.add_argument('--compress', action='store_true', help='Compress output.')
     parser.add_argument("--debug-ui", action="store_true", help="Show debug interface.")
+    parser.add_argument("--indexes", type=str, help="Indexes of matches for replacement.")
     args = parser.parse_args()
     
     gui_treeList = None
+    indexes = []
     if (args.debug_ui):
         import wx
         from gui import Main
@@ -373,6 +382,9 @@ if __name__ == "__main__":
         frame.m_treeList.SetColumnWidth(col=0, width=30 * font_size[0])
         gui_treeList = frame.m_treeList
 
+    if args.indexes is not None:
+        indexes = [int(idx) for idx in args.indexes.split(',')]
+
     total_replacements = 0
     reader = pypdf.PdfReader(args.input)
     writer = pypdf.PdfWriter()
@@ -385,9 +397,9 @@ if __name__ == "__main__":
         # NOTE: contents may be None, ContentStream, EncodedStreamObject, ArrayObject
         if (isinstance(contents, pypdf.generic._data_structures.ArrayObject)):
             for content in contents:
-                total_replacements += replace_text(content, args.search, args.replace, args.delete, gui_treeList)
+                total_replacements += replace_text(content, args.search, args.replace, args.delete, indexes, gui_treeList)
         elif (isinstance(contents, pypdf.generic._data_structures.ContentStream)):
-            total_replacements += replace_text(contents, args.search, args.replace, args.delete, gui_treeList)
+            total_replacements += replace_text(contents, args.search, args.replace, args.delete, indexes, gui_treeList)
         else:
             raise NotImplementedError(f"Handling content of type {type(contents)} is not implemented.")
 
