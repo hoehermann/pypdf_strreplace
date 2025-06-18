@@ -363,8 +363,6 @@ if __name__ == "__main__":
     parser.add_argument("--indexes", type=int, action="extend", nargs="+", help="Indexes of matches for replacement.")
     args = parser.parse_args()
     
-    print(args.indexes)
-    
     gui_treeList = None
     if (args.debug_ui):
         import wx
