@@ -2,10 +2,13 @@
 try:
     import pypdf
 except ModuleNotFoundError:
-    print("pypdf 5.x.x is needed.")
+    print("pypdf 5.x.x or newer is needed.")
     raise
-if (int(pypdf.__version__.split(".")[0]) != 5):
-    raise ModuleNotFoundError(f"pypdf 5.x.x is needed. You have {pypdf.__version__}.")
+pypdf_major_version = int(pypdf.__version__.split(".")[0])
+if (pypdf_major_version < 5):
+    raise ModuleNotFoundError(f"pypdf 5.x.x or newer is needed. You have {pypdf.__version__}.")
+elif (pypdf_major_version not in [5, 6]):
+    print(f"WARNING: This tool has not been tested with pypdf version {pypdf.__version__}.")
 import argparse
 import sys
 import io
