@@ -19,6 +19,22 @@ Since PDF is a fairly complex and convoluted file format, searching and replacin
 
 This list is not exhaustive.
 
+#### Visual Explanation of Limitations
+
+Consider the text "this is fine":
+
+<img src="subsetting.svg?raw=true" />
+
+You cannot replace "fine" with "not" since the "o" has been stripped from the font. The "n" and the "t" are available (since they are being used in "fine" and "this").
+
+What happens with missing glyphs depends on the PDV viewer. Some draw a "glyph not found symbol" similar to ⌧. Others insert a blank space. Others crash.
+
+With ligatures, the issue becomes even less obvious. You cannot replace "ﬁne" with "fine", since there is no "f" in the font either. Instead, a fi-ligature like "ﬁ" has been supplied (take a close look at the first two lines).
+
+<img src="ligature.svg?raw=true" />
+
+Overcoming this limitation would not only take substantial development effort, but also require the user to have a copy of the original font as well as the license to embed it in a document.
+
 ### Usage
 
 First, get a list of all the lines in the PDF:
