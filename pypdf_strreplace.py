@@ -22,6 +22,9 @@ import re
 import pprint
 import collections
 
+class MissingGlyphError(KeyError):
+    pass
+
 class ExceptionalTranslator:
     def __init__(self, map, font):
         self.trans = str.maketrans(map)
@@ -32,7 +35,7 @@ class ExceptionalTranslator:
                 print("WARNING: Missing space glyph.")
             else:
                 error_message = f"Replacement glyph »{chr(key)}« (ordinal {key}) is not available in this document for font {self.font}." # error message on separate line to avoid confusion with the acutal string „key“
-                raise ValueError(error_message)
+                raise MissingGlyphError(error_message)
         return self.trans.__getitem__(key)
 
 class CharMap:
@@ -40,6 +43,7 @@ class CharMap:
         [setattr(self, k, v) for k,v in locals().items()]
     @classmethod
     def from_char_map(cls, subtype:str, halfspace:float, encoding:Union[str, Dict[int, str]], map:Dict[str, str], ft:DictionaryObject):
+        #print(f"'{ft['/BaseFont']}' `{''.join(map.values())}`")
         return cls(subtype, halfspace, encoding, map, ft)
     def decode(self, text:Union[TextStringObject,ByteStringObject]):
         #print(f"Decoding „{text.get_original_bytes()}“ with this map:")
@@ -57,6 +61,18 @@ class CharMap:
             raise NotImplementedError(f"Cannot decode {type(text)} „{text}“ with this {type(self.encoding)} encoding: {self.encoding}")
     def encode(self, text, reference):
         #print(f"Encoding „{text}“ to conform to", type(reference))
+        if (self.map != {}):
+            # check glyph availability for all text with fonts subject to mapping
+            available_glyphs = self.map.values()
+            for glyph in text:
+                if (glyph not in available_glyphs):
+                    # ignore missing spaces for now since most PDF viewers render unknown glyphs as space
+                    # TODO: do not try to add a missing space glyph, inject PDFOperationTd instead
+                    if (glyph == " "):
+                        print("WARNING: Missing space glyph.")
+                    else:
+                        error_message = f"Replacement glyph »{glyph}« is not available in this document for font {self.ft['/BaseFont']}."
+                        raise MissingGlyphError(error_message) 
         if (isinstance(self.encoding, dict)):
             return TextStringObject(text)
         elif (self.encoding == "charmap"):
@@ -82,6 +98,7 @@ def get_char_maps(obj: Any, space_width: float = 200.0) -> Dict[str, CharMap]:
     resources_dict = cast(DictionaryObject, objr[PG.RESOURCES])
     if "/Font" in resources_dict:
         for font_id in cast(DictionaryObject, resources_dict["/Font"]):
+            #print(f'* `{font_id}')
             cmaps[font_id] = CharMap.from_char_map(*build_char_map(font_id, space_width, obj))
     return cmaps
 
@@ -383,32 +400,35 @@ if __name__ == "__main__":
     total_replacements = 0
     reader = pypdf.PdfReader(args.input)
     writer = pypdf.PdfWriter()
-    for page_index, page in enumerate(reader.pages):
-        charmaps = get_char_maps(page)
-        if (args.search is None):
-            print(f"# These fonts are referenced on page {page_index+1}: {', '.join([cm.ft['/BaseFont'] for cm in charmaps.values()])}")
-        context = Context(charmaps)
-        contents = page.get_contents()
-        # NOTE: contents may be None, ContentStream, EncodedStreamObject, ArrayObject
-        if (isinstance(contents, pypdf.generic._data_structures.ArrayObject)):
-            for content in contents:
-                total_replacements += replace_text(content, args.search, args.replace, args.delete, args.indexes, gui_treeList)
-        elif (isinstance(contents, pypdf.generic._data_structures.ContentStream)):
-            total_replacements += replace_text(contents, args.search, args.replace, args.delete, args.indexes, gui_treeList)
-        else:
-            raise NotImplementedError(f"Handling content of type {type(contents)} is not implemented.")
+    try:
+        for page_index, page in enumerate(reader.pages):
+            charmaps = get_char_maps(page)
+            if (args.search is None):
+                print(f"# These fonts are referenced on page {page_index+1}: {', '.join([cm.ft['/BaseFont'] for cm in charmaps.values()])}")
+            context = Context(charmaps)
+            contents = page.get_contents()
+            # NOTE: contents may be None, ContentStream, EncodedStreamObject, ArrayObject
+            if (isinstance(contents, pypdf.generic._data_structures.ArrayObject)):
+                for content in contents:
+                    total_replacements += replace_text(content, args.search, args.replace, args.delete, args.indexes, gui_treeList)
+            elif (isinstance(contents, pypdf.generic._data_structures.ContentStream)):
+                total_replacements += replace_text(contents, args.search, args.replace, args.delete, args.indexes, gui_treeList)
+            else:
+                raise NotImplementedError(f"Handling content of type {type(contents)} is not implemented.")
 
-        page.replace_contents(contents)
-        writer.add_page(page)
+            page.replace_contents(contents)
+            writer.add_page(page)
 
-    if (args.output):
-        if (args.compress):
-            for page in writer.pages:
-                page.compress_content_streams()
-        writer.write(args.output)
+        if (args.output):
+            if (args.compress):
+                for page in writer.pages:
+                    page.compress_content_streams()
+            writer.write(args.output)
 
-    if (args.search):
-        print(f"There are {total_replacements} occurrences.")
+        if (args.search):
+            print(f"There are {total_replacements} occurrences.")
+    except MissingGlyphError as mge:
+        print(mge.args[0])
 
     if (args.debug_ui):
         frame.Show()
