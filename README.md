@@ -27,7 +27,7 @@ Consider the text "this is fine":
 
 You cannot replace "fine" with "not" since the "o" has been stripped from the font. The "n" and the "t" are available (since they are being used in "fine" and "this").
 
-What happens with missing glyphs depends on the PDV viewer. Some draw a "glyph not found symbol" similar to ⌧. Others insert a blank space. Others crash.
+What happens with missing glyphs depends on the PDF viewer. Some draw a "glyph not found symbol" similar to ⌧. Others insert a blank space. Others crash.
 
 With ligatures, the issue becomes even less obvious. You cannot replace "ﬁne" with "fine", since there is no "f" in the font either. Instead, a fi-ligature like "ﬁ" has been supplied (take a close look at the first two lines).
 
