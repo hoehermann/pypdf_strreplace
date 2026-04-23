@@ -37,16 +37,14 @@ class ExceptionalTranslator:
         return self.trans.__getitem__(key)
 
 class CharMap:
-    def __init__(self, font: Font, ft: DictionaryObject):
+    def __init__(self, font: Font):
         self.font = font
-        self.ft = ft
         self.subtype = font.sub_type
         self.encoding = font.encoding
         self.map = font.character_map
     @classmethod
-    def from_font(cls, font: Font, ft:DictionaryObject):
-        #print(f"'{ft['/BaseFont']}' `{''.join(font.character_map.values())}`")
-        return cls(font, ft)
+    def from_font(cls, font: Font):
+        return cls(font)
     def decode(self, text:Union[TextStringObject,ByteStringObject]):
         #print(f"Decoding „{text.get_original_bytes()}“ with this map:")
         #pprint.pprint(self.map)
@@ -73,20 +71,20 @@ class CharMap:
                     if (glyph == " "):
                         print("WARNING: Missing space glyph.")
                     else:
-                        error_message = f"Replacement glyph »{glyph}« is not available in this document for font {self.ft['/BaseFont']}."
+                        error_message = f"Replacement glyph »{glyph}« is not available in this document for font {self.font.name}."
                         raise MissingGlyphError(error_message) 
         if (isinstance(self.encoding, dict)):
             return TextStringObject(text)
         elif (self.encoding == "charmap"):
             map = {v:k for k,v in self.map.items()}
-            return ByteStringObject(text.translate(ExceptionalTranslator(map, self.ft['/BaseFont'])).encode('ascii')) # encoding with ascii is a wild guess
+            return ByteStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode('ascii')) # encoding with ascii is a wild guess
         elif (isinstance(reference, TextStringObject) and isinstance(self.encoding, str) and self.map):
             map = {v:k for k,v in self.map.items() if not isinstance(v,str) or len(v) == 1}
             # TODO: find out if BOM needs to be added in case it was stripped (see decode)
-            return TextStringObject(text.translate(ExceptionalTranslator(map, self.ft['/BaseFont'])).encode(self.encoding))
+            return TextStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode(self.encoding))
         elif (isinstance(reference, ByteStringObject)):
             map = {v:k for k,v in self.map.items() if not isinstance(v,str) or len(v) == 1}
-            return ByteStringObject(text.translate(ExceptionalTranslator(map, self.ft['/BaseFont'])).encode(self.encoding))
+            return ByteStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode(self.encoding))
         else:
             raise NotImplementedError(f"Cannot encode this {type(self.encoding)} encoding: {self.encoding}")
 
@@ -99,12 +97,11 @@ def get_char_maps(obj: Any, space_width: float = 200.0) -> Dict[str, CharMap]:
         objr = objr["/Parent"].get_object()
     resources_dict = cast(DictionaryObject, objr[PG.RESOURCES])
     if "/Font" in resources_dict:
-        font_dict = cast(DictionaryObject, resources_dict["/Font"])
-        for font_id in font_dict:
+        fonts_dict = cast(DictionaryObject, resources_dict["/Font"])
+        for font_id in fonts_dict:
             #print(f'* `{font_id}')
-            font_resource_object = cast(DictionaryObject, font_dict[font_id].get_object())
-            font_obj = Font.from_font_resource(font_resource_object)
-            cmaps[font_id] = CharMap.from_font(font_obj, font_resource_object)
+            font_dict = cast(DictionaryObject, fonts_dict[font_id].get_object())
+            cmaps[font_id] = CharMap.from_font(Font.from_font_resource(font_dict))
     return cmaps
 
 class Context:
@@ -409,7 +406,7 @@ if __name__ == "__main__":
         for page_index, page in enumerate(writer.pages):
             charmaps = get_char_maps(page)
             if (args.search is None):
-                print(f"# These fonts are referenced on page {page_index+1}: {', '.join([cm.ft['/BaseFont'] for cm in charmaps.values()])}")
+                print(f"# These fonts are referenced on page {page_index+1}: {', '.join([cm.font.name for cm in charmaps.values()])}")
             context = Context(charmaps)
             contents = page.get_contents()
             # NOTE: contents may be None, ContentStream, EncodedStreamObject, ArrayObject
