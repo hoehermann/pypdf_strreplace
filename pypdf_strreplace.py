@@ -36,34 +36,31 @@ class ExceptionalTranslator:
                 raise MissingGlyphError(error_message)
         return self.trans.__getitem__(key)
 
-class CharMap:
+class CodecFont:
     def __init__(self, font: Font):
         self.font = font
-        self.subtype = font.sub_type
-        self.encoding = font.encoding
-        self.map = font.character_map
     @classmethod
     def from_font(cls, font: Font):
         return cls(font)
     def decode(self, text:Union[TextStringObject,ByteStringObject]):
         #print(f"Decoding „{text.get_original_bytes()}“ with this map:")
-        #pprint.pprint(self.map)
-        if (isinstance(self.encoding, dict)):
+        #pprint.pprint(self.font.character_map)
+        if (isinstance(self.font.encoding, dict)):
             return str(text) # it looks like pypdf applies the encoding dict automatically
-        elif (isinstance(text, TextStringObject) and self.encoding == "charmap"):
+        elif (isinstance(text, TextStringObject) and self.font.encoding == "charmap"):
             # decoding with ascii is a wild guess
-            return "".join(text.get_original_bytes().decode('ascii').translate(str.maketrans(self.map)))
-        elif (isinstance(text, TextStringObject) and isinstance(self.encoding, str) and self.map):
-            return "".join(text.get_original_bytes().decode(self.encoding).translate(str.maketrans(self.map))).lstrip("\ufeff") # strip BOM
+            return "".join(text.get_original_bytes().decode('ascii').translate(str.maketrans(self.font.character_map)))
+        elif (isinstance(text, TextStringObject) and isinstance(self.font.encoding, str) and self.font.character_map):
+            return "".join(text.get_original_bytes().decode(self.font.encoding).translate(str.maketrans(self.font.character_map))).lstrip("\ufeff") # strip BOM
         elif (isinstance(text, ByteStringObject)):
-            return "".join(text.decode(self.encoding).translate(str.maketrans(self.map)))
+            return "".join(text.decode(self.font.encoding).translate(str.maketrans(self.font.character_map)))
         else:
-            raise NotImplementedError(f"Cannot decode {type(text)} „{text}“ with this {type(self.encoding)} encoding: {self.encoding}")
+            raise NotImplementedError(f"Cannot decode {type(text)} „{text}“ with this {type(self.font.encoding)} encoding: {self.font.encoding}")
     def encode(self, text, reference):
         #print(f"Encoding „{text}“ to conform to", type(reference))
-        if (self.map != {}):
+        if (self.font.character_map != {}):
             # check glyph availability for all text with fonts subject to mapping
-            available_glyphs = self.map.values()
+            available_glyphs = self.font.character_map.values()
             for glyph in text:
                 if (glyph not in available_glyphs):
                     # ignore missing spaces for now since most PDF viewers render unknown glyphs as space
@@ -73,23 +70,23 @@ class CharMap:
                     else:
                         error_message = f"Replacement glyph »{glyph}« is not available in this document for font {self.font.name}."
                         raise MissingGlyphError(error_message) 
-        if (isinstance(self.encoding, dict)):
+        if (isinstance(self.font.encoding, dict)):
             return TextStringObject(text)
-        elif (self.encoding == "charmap"):
-            map = {v:k for k,v in self.map.items()}
+        elif (self.font.encoding == "charmap"):
+            map = {v:k for k,v in self.font.character_map.items()}
             return ByteStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode('ascii')) # encoding with ascii is a wild guess
-        elif (isinstance(reference, TextStringObject) and isinstance(self.encoding, str) and self.map):
-            map = {v:k for k,v in self.map.items() if not isinstance(v,str) or len(v) == 1}
+        elif (isinstance(reference, TextStringObject) and isinstance(self.font.encoding, str) and self.font.character_map):
+            map = {v:k for k,v in self.font.character_map.items() if not isinstance(v,str) or len(v) == 1}
             # TODO: find out if BOM needs to be added in case it was stripped (see decode)
-            return TextStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode(self.encoding))
+            return TextStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode(self.font.encoding))
         elif (isinstance(reference, ByteStringObject)):
-            map = {v:k for k,v in self.map.items() if not isinstance(v,str) or len(v) == 1}
-            return ByteStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode(self.encoding))
+            map = {v:k for k,v in self.font.character_map.items() if not isinstance(v,str) or len(v) == 1}
+            return ByteStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode(self.font.encoding))
         else:
-            raise NotImplementedError(f"Cannot encode this {type(self.encoding)} encoding: {self.encoding}")
+            raise NotImplementedError(f"Cannot encode this {type(self.font.encoding)} encoding: {self.font.encoding}")
 
 # from https://github.com/py-pdf/pypdf/blob/27d0e99/pypdf/_page.py#L1546
-def get_char_maps(obj: Any, space_width: float = 200.0) -> Dict[str, CharMap]:
+def get_char_maps(obj: Any, space_width: float = 200.0) -> Dict[str, CodecFont]:
     cmaps = {}
     objr = obj
     while NameObject(PG.RESOURCES) not in objr:
@@ -101,11 +98,11 @@ def get_char_maps(obj: Any, space_width: float = 200.0) -> Dict[str, CharMap]:
         for font_id in fonts_dict:
             #print(f'* `{font_id}')
             font_dict = cast(DictionaryObject, fonts_dict[font_id].get_object())
-            cmaps[font_id] = CharMap.from_font(Font.from_font_resource(font_dict))
+            cmaps[font_id] = CodecFont.from_font(Font.from_font_resource(font_dict))
     return cmaps
 
 class Context:
-    def __init__(self, charmaps:Dict[str,CharMap], font:str = None):
+    def __init__(self, charmaps:Dict[str,CodecFont], font:str = None):
         self.font = font
         self.charmaps = charmaps
     def clone_shared_charmaps(self):
