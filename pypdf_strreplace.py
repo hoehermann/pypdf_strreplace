@@ -24,15 +24,15 @@ class MissingGlyphError(KeyError):
     pass
 
 class ExceptionalTranslator:
-    def __init__(self, map, font):
+    def __init__(self, map, font_name):
         self.trans = str.maketrans(map)
-        self.font = font
+        self.font_name = font_name
     def __getitem__(self, key):
         if key not in self.trans.keys():
             if (key == 32):
                 print("WARNING: Missing space glyph.")
             else:
-                error_message = f"Replacement glyph »{chr(key)}« (ordinal {key}) is not available in this document for font {self.font}." # error message on separate line to avoid confusion with the acutal string „key“
+                error_message = f"Replacement glyph »{chr(key)}« (ordinal {key}) is not available in this document for font {self.font_name}." # error message on separate line to avoid confusion with the acutal string „key“
                 raise MissingGlyphError(error_message)
         return self.trans.__getitem__(key)
 
@@ -71,6 +71,10 @@ class CodecFont:
                         error_message = f"Replacement glyph »{glyph}« is not available in this document for font {self.font.name}."
                         raise MissingGlyphError(error_message) 
         if (isinstance(self.font.encoding, dict)):
+            for c in text:
+                if (self.font.character_widths[c] == 0):
+                    error_message = f"Replacement glyph »{c}« is not available in this document for font {self.font.name}."
+                    raise MissingGlyphError(error_message)
             return TextStringObject(text)
         elif (self.font.encoding == "charmap"):
             map = {v:k for k,v in self.font.character_map.items()}
