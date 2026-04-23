@@ -43,7 +43,6 @@ class CharMap:
         self.subtype = font.sub_type
         self.encoding = font.encoding
         self.map = font.character_map
-        self.halfspace = font.space_width / 2
     @classmethod
     def from_font(cls, font: Font, ft:DictionaryObject):
         #print(f"'{ft['/BaseFont']}' `{''.join(font.character_map.values())}`")
@@ -172,10 +171,9 @@ class PDFOperationTJ(PDFOperation):
     def _infer_plain_text(self):
         for operand in self.get_relevant_operands():
             if (isinstance(operand, NumberObject) or isinstance(operand, FloatObject)):
-                # halfspace-based spacing detection is disabled until the Font-based metrics are validated
-                # halfspace = self.context.charmaps[self.context.font].halfspace
-                # if (operand < -halfspace):
-                #     operand.plain_text = " "
+                space_width = self.context.charmaps[self.context.font].font.space_width
+                if (operand < -space_width):
+                    operand.plain_text = " "
                 pass
             else:
                 operand.plain_text = self.context.charmaps[self.context.font].decode(operand)
