@@ -331,7 +331,7 @@ def replace_text(content, args_search, args_replace, args_delete, args_indexes, 
     text = extract_text(operations)
 
     matches = []
-    if (args_search is None and args_delete is True):
+    if (args_search is None and not args_delete):
         # just print
         print("# These are the lines this tool might be able to handle:")
         print(text)
