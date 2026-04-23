@@ -8,17 +8,12 @@ pypdf_version = tuple([int(x) for x in pypdf.__version__.split(".")[0:2]])
 if (pypdf_version < (6,6)):
     raise ModuleNotFoundError(f"pypdf 6.6.x is needed. A newer version might work, too. You have {pypdf.__version__}.")
 import argparse
-import sys
-import io
-import binascii
-from typing import Any, Callable, Dict, Tuple, Union, List, cast
-from pypdf.generic import DictionaryObject, NameObject, ContentStream, ArrayObject
+from typing import Any, Dict, Tuple, Union, List, cast
+from pypdf.generic import DictionaryObject, NameObject, ArrayObject
 from pypdf.generic._base import TextStringObject, ByteStringObject, NumberObject, FloatObject
 from pypdf.constants import PageAttributes as PG
 from pypdf._font import Font
 import re
-import pprint
-import collections
 
 class MissingGlyphError(KeyError):
     pass
@@ -98,6 +93,11 @@ def get_char_maps(obj: Any, space_width: float = 200.0) -> Dict[str, CodecFont]:
         objr = objr["/Parent"].get_object()
     resources_dict = cast(DictionaryObject, objr[PG.RESOURCES])
     if "/Font" in resources_dict:
+        font_dict = DictionaryObject()
+        font_dict[NameObject('/Type')] = NameObject('/Font')
+        font_dict[NameObject('/Subtype')] = NameObject('/TrueType')
+        font_dict[NameObject('/BaseFont')] = NameObject('/Calibri-Bold')
+        resources_dict["/Font"][NameObject('/F10')] = font_dict
         fonts_dict = cast(DictionaryObject, resources_dict["/Font"])
         for font_id in fonts_dict:
             #print(f'* `{font_id}')
@@ -371,6 +371,11 @@ def replace_text(content, args_search, args_replace, args_delete, args_indexes, 
                         if (operand_change):
                             operand_change.apply(operation, operand_index, operation.get_relevant_operands())
                     #print(f"After replacements:  {operation}")
+
+    #content.operations[11:11] = [([NameObject("/F10")],b'Tf'),([ArrayObject([TextStringObject("Hello World")])],b'Tj')]
+    content.operations[-2:-2] = [([NameObject("/F10")],b'Tf'),(ArrayObject([TextStringObject("\n\x0bAA")]), b'Tj')]
+    for operation in content.operations:
+        print(operation)
 
     return len(matches) # return amount of matches – which is hopefully the amount of replacements (mind the postfixes!)
 
