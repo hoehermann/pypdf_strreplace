@@ -2,11 +2,11 @@
 try:
     import pypdf
 except ModuleNotFoundError:
-    print("pypdf not found. pypdf 5.x.x or newer (up to 6.5.x) is needed. ")
+    print("pypdf not found. pypdf 6.6.x is needed. A newer version might work, too.")
     raise
 pypdf_version = tuple([int(x) for x in pypdf.__version__.split(".")[0:2]])
-if (pypdf_version < (5,0) or pypdf_version > (6,5)):
-    raise ModuleNotFoundError(f"pypdf 5.x.x or newer (up to 6.5.x) is needed. You have {pypdf.__version__}.")
+if (pypdf_version < (6,6)):
+    raise ModuleNotFoundError(f"pypdf 6.6.x is needed. A newer version might work, too. You have {pypdf.__version__}.")
 import argparse
 import sys
 import io
@@ -15,7 +15,7 @@ from typing import Any, Callable, Dict, Tuple, Union, List, cast
 from pypdf.generic import DictionaryObject, NameObject, ContentStream, ArrayObject
 from pypdf.generic._base import TextStringObject, ByteStringObject, NumberObject, FloatObject
 from pypdf.constants import PageAttributes as PG
-from pypdf._cmap import build_char_map
+from pypdf._font import Font
 import re
 import pprint
 import collections
@@ -37,12 +37,17 @@ class ExceptionalTranslator:
         return self.trans.__getitem__(key)
 
 class CharMap:
-    def __init__(self, subtype, halfspace, encoding, map, ft):
-        [setattr(self, k, v) for k,v in locals().items()]
+    def __init__(self, font: Font, ft: DictionaryObject):
+        self.font = font
+        self.ft = ft
+        self.subtype = font.sub_type
+        self.encoding = font.encoding
+        self.map = font.character_map
+        self.halfspace = font.space_width / 2
     @classmethod
-    def from_char_map(cls, subtype:str, halfspace:float, encoding:Union[str, Dict[int, str]], map:Dict[str, str], ft:DictionaryObject):
-        #print(f"'{ft['/BaseFont']}' `{''.join(map.values())}`")
-        return cls(subtype, halfspace, encoding, map, ft)
+    def from_font(cls, font: Font, ft:DictionaryObject):
+        #print(f"'{ft['/BaseFont']}' `{''.join(font.character_map.values())}`")
+        return cls(font, ft)
     def decode(self, text:Union[TextStringObject,ByteStringObject]):
         #print(f"Decoding „{text.get_original_bytes()}“ with this map:")
         #pprint.pprint(self.map)
@@ -95,9 +100,12 @@ def get_char_maps(obj: Any, space_width: float = 200.0) -> Dict[str, CharMap]:
         objr = objr["/Parent"].get_object()
     resources_dict = cast(DictionaryObject, objr[PG.RESOURCES])
     if "/Font" in resources_dict:
-        for font_id in cast(DictionaryObject, resources_dict["/Font"]):
+        font_dict = cast(DictionaryObject, resources_dict["/Font"])
+        for font_id in font_dict:
             #print(f'* `{font_id}')
-            cmaps[font_id] = CharMap.from_char_map(*build_char_map(font_id, space_width, obj))
+            font_resource_object = cast(DictionaryObject, font_dict[font_id].get_object())
+            font_obj = Font.from_font_resource(font_resource_object)
+            cmaps[font_id] = CharMap.from_font(font_obj, font_resource_object)
     return cmaps
 
 class Context:
@@ -164,10 +172,11 @@ class PDFOperationTJ(PDFOperation):
     def _infer_plain_text(self):
         for operand in self.get_relevant_operands():
             if (isinstance(operand, NumberObject) or isinstance(operand, FloatObject)):
-                halfspace = self.context.charmaps[self.context.font].halfspace
-                if (operand < -halfspace):
-                    # interpret big horizontal adjustment as space. total guess. works for the xelatex sample.
-                    operand.plain_text = " "
+                # halfspace-based spacing detection is disabled until the Font-based metrics are validated
+                # halfspace = self.context.charmaps[self.context.font].halfspace
+                # if (operand < -halfspace):
+                #     operand.plain_text = " "
+                pass
             else:
                 operand.plain_text = self.context.charmaps[self.context.font].decode(operand)
     def get_relevant_operands(self):
