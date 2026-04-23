@@ -406,9 +406,9 @@ if __name__ == "__main__":
 
     total_replacements = 0
     reader = pypdf.PdfReader(args.input)
-    writer = pypdf.PdfWriter()
+    writer = pypdf.PdfWriter(clone_from=reader)
     try:
-        for page_index, page in enumerate(reader.pages):
+        for page_index, page in enumerate(writer.pages):
             charmaps = get_char_maps(page)
             if (args.search is None):
                 print(f"# These fonts are referenced on page {page_index+1}: {', '.join([cm.ft['/BaseFont'] for cm in charmaps.values()])}")
@@ -422,9 +422,7 @@ if __name__ == "__main__":
                 total_replacements += replace_text(contents, args.search, args.replace, args.delete, args.indexes, gui_treeList)
             else:
                 raise NotImplementedError(f"Handling content of type {type(contents)} is not implemented.")
-
             page.replace_contents(contents)
-            writer.add_page(page)
 
         if (args.output):
             if (args.compress):
