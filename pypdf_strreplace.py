@@ -9,7 +9,7 @@ if (pypdf_version < (6,6)):
     raise ModuleNotFoundError(f"pypdf 6.6.x is needed. A newer version might work, too. You have {pypdf.__version__}.")
 import argparse
 from typing import Any, Dict, Tuple, Union, List, cast
-from pypdf.generic import DictionaryObject, NameObject, ArrayObject
+from pypdf.generic import DictionaryObject, NameObject, ArrayObject, ContentStream
 from pypdf.generic._base import TextStringObject, ByteStringObject, NumberObject, FloatObject
 from pypdf.constants import PageAttributes as PG
 from pypdf._font import Font
@@ -70,6 +70,7 @@ class FontCodec:
             for c in text:
                 if (self.font.character_widths[c] == 0):
                     print(f"Replacement glyph »{c}« is not available in this document for font {self.font.name}.")
+                    # TODO: inject font iff is truetype and needs no translation
                     font_name = self.font.name.split('+')[-1]
                     font_key = inject_truetype(font_name)
                     print(f"Injected reference to font {font_name} as {font_key}.")
@@ -397,7 +398,7 @@ def replace_text(content, context, args_search, args_replace, args_delete, args_
                                 # this should be okay since we touch each operation only once and changes to later operations have already been applied
                                 content.operations[operation_index:operation_index] = [([NameObject(font_key), NumberObject(12)], b'Tf')]
                     #print(f"After replacements:  {operation}")
-
+    print(content.operations)
     return len(matches) # return amount of matches – which is hopefully the amount of replacements (mind the postfixes!)
 
 if __name__ == "__main__":
@@ -438,10 +439,10 @@ if __name__ == "__main__":
             context = Context(font_codecs, fonts_dict)
             contents = page.get_contents()
             # NOTE: contents may be None, ContentStream, EncodedStreamObject, ArrayObject
-            if (isinstance(contents, pypdf.generic._data_structures.ArrayObject)):
+            if (isinstance(contents, ArrayObject)):
                 for content in contents:
                     total_replacements += replace_text(content, context, args.search, args.replace, args.delete, args.indexes, gui_treeList)
-            elif (isinstance(contents, pypdf.generic._data_structures.ContentStream)):
+            elif (isinstance(contents, ContentStream)):
                 total_replacements += replace_text(contents, context, args.search, args.replace, args.delete, args.indexes, gui_treeList)
             else:
                 raise NotImplementedError(f"Handling content of type {type(contents)} is not implemented.")
