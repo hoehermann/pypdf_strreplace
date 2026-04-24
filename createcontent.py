@@ -1,21 +1,24 @@
 import pypdf
-from pypdf.generic import NameObject, DictionaryObject
-
+from pypdf.generic import NameObject, DictionaryObject, ContentStream, ArrayObject, NumberObject, TextStringObject
 writer = pypdf.PdfWriter()
-page = pypdf.PageObject.create_blank_page(writer, 612, 792)
-
-# Add font resource to the page
-if '/Resources' not in page:
-    page[NameObject('/Resources')] = DictionaryObject()
-if '/Font' not in page['/Resources']:
-    page['/Resources'][NameObject('/Font')] = DictionaryObject()
-
+page = pypdf.PageObject.create_blank_page(writer, 50, 20)
+page[NameObject('/Resources')] = DictionaryObject()
+page['/Resources'][NameObject('/Font')] = DictionaryObject()
 font_dict = DictionaryObject()
 font_dict[NameObject('/Type')] = NameObject('/Font')
 font_dict[NameObject('/Subtype')] = NameObject('/TrueType')
-font_dict[NameObject('/BaseFont')] = NameObject('/Calibri-Bold')
-
+font_dict[NameObject('/BaseFont')] = NameObject('/FreeSans')
 page['/Resources']['/Font'][NameObject('/F1')] = font_dict
-
+content = ContentStream(None, page.pdf)
+content.operations = [
+    (ArrayObject(), b'BT'),
+    (ArrayObject([NumberObject(12), NumberObject(5)]), b'Td'),
+    ([NameObject('/F1'), NumberObject(12)], b'Tf'),
+    (ArrayObject([TextStringObject('ABC')]), b'Tj'),
+    (ArrayObject(), b'ET'),
+    (ArrayObject(), b'Q'),
+]
+print(content.operations)
+page.replace_contents(content)
 writer.add_page(page)
 writer.write("test.pdf")
