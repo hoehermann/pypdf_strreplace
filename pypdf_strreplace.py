@@ -31,7 +31,7 @@ class ExceptionalTranslator:
                 raise MissingGlyphError(error_message)
         return self.trans.__getitem__(key)
 
-class CodecFont:
+class FontCodec:
     def __init__(self, font: Font):
         self.font = font
     @classmethod
@@ -51,8 +51,9 @@ class CodecFont:
             return "".join(text.decode(self.font.encoding).translate(str.maketrans(self.font.character_map)))
         else:
             raise NotImplementedError(f"Cannot decode {type(text)} „{text}“ with this {type(self.font.encoding)} encoding: {self.font.encoding}")
-    def encode(self, text, reference):
+    def encode(self, text, reference, inject_truetype):
         #print(f"Encoding „{text}“ to conform to", type(reference))
+        font_key = None
         if (self.font.character_map != {}):
             # check glyph availability for all text with fonts subject to mapping
             available_glyphs = self.font.character_map.values()
@@ -68,49 +69,67 @@ class CodecFont:
         if (isinstance(self.font.encoding, dict)):
             for c in text:
                 if (self.font.character_widths[c] == 0):
-                    error_message = f"Replacement glyph »{c}« is not available in this document for font {self.font.name}."
-                    raise MissingGlyphError(error_message)
-            return TextStringObject(text)
+                    print(f"Replacement glyph »{c}« is not available in this document for font {self.font.name}.")
+                    font_name = self.font.name.split('+')[-1]
+                    font_key = inject_truetype(font_name)
+                    print(f"Injected reference to font {font_name} as {font_key}.")
+            return TextStringObject(text), font_key
         elif (self.font.encoding == "charmap"):
             map = {v:k for k,v in self.font.character_map.items()}
-            return ByteStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode('ascii')) # encoding with ascii is a wild guess
+            return ByteStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode('ascii')), font_key # encoding with ascii is a wild guess
         elif (isinstance(reference, TextStringObject) and isinstance(self.font.encoding, str) and self.font.character_map):
             map = {v:k for k,v in self.font.character_map.items() if not isinstance(v,str) or len(v) == 1}
             # TODO: find out if BOM needs to be added in case it was stripped (see decode)
-            return TextStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode(self.font.encoding))
+            return TextStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode(self.font.encoding)), font_key
         elif (isinstance(reference, ByteStringObject)):
             map = {v:k for k,v in self.font.character_map.items() if not isinstance(v,str) or len(v) == 1}
-            return ByteStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode(self.font.encoding))
+            return ByteStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode(self.font.encoding)), font_key
         else:
             raise NotImplementedError(f"Cannot encode this {type(self.font.encoding)} encoding: {self.font.encoding}")
 
-# from https://github.com/py-pdf/pypdf/blob/27d0e99/pypdf/_page.py#L1546
-def get_char_maps(obj: Any, space_width: float = 200.0) -> Dict[str, CodecFont]:
-    cmaps = {}
-    objr = obj
-    while NameObject(PG.RESOURCES) not in objr:
+def get_fonts_dict(page):
+    object_with_resources = page
+    while NameObject(PG.RESOURCES) not in object_with_resources:
         # /Resources can be inherited sometimes so we look to parents
-        objr = objr["/Parent"].get_object()
-    resources_dict = cast(DictionaryObject, objr[PG.RESOURCES])
+        object_with_resources = object_with_resources["/Parent"].get_object()
+    resources_dict = cast(DictionaryObject, object_with_resources[PG.RESOURCES])
     if "/Font" in resources_dict:
-        font_dict = DictionaryObject()
-        font_dict[NameObject('/Type')] = NameObject('/Font')
-        font_dict[NameObject('/Subtype')] = NameObject('/TrueType')
-        font_dict[NameObject('/BaseFont')] = NameObject('/Calibri-Bold')
-        resources_dict["/Font"][NameObject('/F10')] = font_dict
-        fonts_dict = cast(DictionaryObject, resources_dict["/Font"])
-        for font_id in fonts_dict:
-            #print(f'* `{font_id}')
-            font_dict = cast(DictionaryObject, fonts_dict[font_id].get_object())
-            cmaps[font_id] = CodecFont.from_font(Font.from_font_resource(font_dict))
-    return cmaps
+        return cast(DictionaryObject, resources_dict["/Font"])
+    raise RuntimeError("This tool was not tested on PDF documents without any fonts.")
+
+# from https://github.com/py-pdf/pypdf/blob/27d0e99/pypdf/_page.py#L1546
+def get_font_codecs(fonts_dict) -> Dict[str, FontCodec]:
+    font_codecs = {}
+    for font_id in fonts_dict:
+        font_dict = cast(DictionaryObject, fonts_dict[font_id].get_object())
+        font_codecs[font_id] = FontCodec.from_font(Font.from_font_resource(font_dict))
+    return font_codecs
 
 class Context:
-    def __init__(self, charmaps:Dict[str,CodecFont], font:str = None):
-        self.font = font
-        self.charmaps = charmaps
-    def clone_shared_charmaps(self):
-        return type(self)(self.charmaps, self.font)
+    def __init__(self, font_codecs:Dict[str,FontCodec], fonts_dict):
+        self.font = None
+        self.font_codecs = font_codecs
+        self.fonts_dict = fonts_dict
+    def clone_shared_font_codecs(self):
+        obj = type(self)(self.font_codecs, self.fonts_dict)
+        obj.font = self.font
+        return obj
+    def inject_truetype(self, postscript_name):
+        prefix = "/F" # not all PDF generators use this prefix, but I am only interested in the first non-clashing index
+        def int_or_zero(s):
+            try:
+                return int(s.lstrip("/F"))
+            except ValueError:
+                return 0
+        max_font_number = max([int_or_zero(key) for key in self.fonts_dict.keys()])
+        dictionary_key = prefix+str(max_font_number+1)
+        font_dict = DictionaryObject()
+        font_dict[NameObject("/Type")] = NameObject("/Font")
+        font_dict[NameObject("/Subtype")] = NameObject("/TrueType")
+        font_dict[NameObject("/BaseFont")] = NameObject("/"+postscript_name)
+        # TODO: do not inject the same font more than once
+        self.fonts_dict[NameObject(dictionary_key)] = font_dict
+        return dictionary_key
 class PDFOperation:
     def __init__(self, operands, operator, context:Context):
         self.operands = operands
@@ -159,7 +178,7 @@ class PDFOperationTJ(PDFOperation):
     def __init__(self, operands:list[list[Union[TextStringObject,ByteStringObject,NumberObject]]], context:Context):
         if (len(operands) != 1):
             raise ValueError(f"PDFOperationTJ expects one non-empty Array of Array")
-        super().__init__(operands, "TJ", context.clone_shared_charmaps())
+        super().__init__(operands, "TJ", context.clone_shared_font_codecs())
         self._infer_plain_text()
         object_types = set([operand.__class__ for operand in operands])-set([NumberObject.__class__])
         if (len(object_types) > 1):
@@ -169,12 +188,12 @@ class PDFOperationTJ(PDFOperation):
     def _infer_plain_text(self):
         for operand in self.get_relevant_operands():
             if (isinstance(operand, NumberObject) or isinstance(operand, FloatObject)):
-                space_width = self.context.charmaps[self.context.font].font.space_width
+                space_width = self.context.font_codecs[self.context.font].font.space_width
                 if (operand < -space_width):
                     operand.plain_text = " "
                 pass
             else:
-                operand.plain_text = self.context.charmaps[self.context.font].decode(operand)
+                operand.plain_text = self.context.font_codecs[self.context.font].decode(operand)
     def get_relevant_operands(self):
         return self.operands[0]
     def set_operand_text(self, text, index):
@@ -183,22 +202,24 @@ class PDFOperationTJ(PDFOperation):
         if (not isinstance(sample, TextStringObject) and not isinstance(sample, ByteStringObject)):
             # in this case, just select any text operand
             sample = next((op for op in self.operands[0] if isinstance(op, TextStringObject) or isinstance(op, ByteStringObject)))
-        self.operands[0][index] = charmaps[self.context.font].encode(text, sample)
+        self.operands[0][index], font_key = font_codecs[self.context.font].encode(text, sample, self.context.inject_truetype)
+        return font_key
 class PDFOperationTj(PDFOperation):
     def __init__(self, operands:list[Union[TextStringObject,ByteStringObject]], context:Context):
         if (len(operands) != 1):
             raise ValueError(f"PDFOperationTj expects one non-empty Array of TextStringObject")
-        super().__init__(operands, "Tj", context.clone_shared_charmaps())
+        super().__init__(operands, "Tj", context.clone_shared_font_codecs())
         self._infer_plain_text()
     def __str__(self):
         return f"„{self.get_relevant_operands()}“ {self.operator}"
     def _infer_plain_text(self):
-        self.operands[0].plain_text = self.context.charmaps[self.context.font].decode(self.operands[0])
+        self.operands[0].plain_text = self.context.font_codecs[self.context.font].decode(self.operands[0])
     def get_relevant_operands(self):
         return self.operands
     def set_operand_text(self, text, index):
         sample = self.operands[0] # Tj has only one operand
-        self.operands[0] = charmaps[self.context.font].encode(text, sample)
+        self.operands[0], font_key = font_codecs[self.context.font].encode(text, sample, self.context.inject_truetype)
+        return font_key
 
 def append_to_tree_list(operations, tree_list):
     root = tree_list.GetRootItem()
@@ -243,7 +264,7 @@ class Text(Change):
     def __str__(self):
         return f"Set text to „{self.text}“"
     def apply(self, element=None, index=None, collection=None):
-        element.set_operand_text(self.text, index)
+        return element.set_operand_text(self.text, index)
 def schedule_replacements(operations, matches, args_replace):
     text = ""
     match = None
@@ -321,7 +342,7 @@ def schedule_deletion(operations):
         if (operation.operator in ["TJ", "Tj", "Td", "Tf"]):
             operation.scheduled_change = Delete()
 
-def replace_text(content, args_search, args_replace, args_delete, args_indexes, gui_treeList):
+def replace_text(content, context, args_search, args_replace, args_delete, args_indexes, gui_treeList):
     # transform plain operations to high-level objects
     operations = [PDFOperation.from_tuple(operands, operator, context) for operands, operator in content.operations]
     
@@ -369,13 +390,13 @@ def replace_text(content, args_search, args_replace, args_delete, args_indexes, 
                     for operand_index, operand in reversed(list(enumerate(operation.get_relevant_operands()))):
                         operand_change = getattr(operand, "scheduled_change", None)
                         if (operand_change):
-                            operand_change.apply(operation, operand_index, operation.get_relevant_operands())
+                            font_key = operand_change.apply(operation, operand_index, operation.get_relevant_operands())
+                            if (font_key is not None):
+                                # TODO: keep track of font size, too
+                                # insert font-selection operation right in front of the current operation which probably is a text output operation
+                                # this should be okay since we touch each operation only once and changes to later operations have already been applied
+                                content.operations[operation_index:operation_index] = [([NameObject(font_key), NumberObject(12)], b'Tf')]
                     #print(f"After replacements:  {operation}")
-
-    #content.operations[11:11] = [([NameObject("/F10")],b'Tf'),([ArrayObject([TextStringObject("Hello World")])],b'Tj')]
-    content.operations[-2:-2] = [([NameObject("/F10")],b'Tf'),(ArrayObject([TextStringObject("\n\x0bAA")]), b'Tj')]
-    for operation in content.operations:
-        print(operation)
 
     return len(matches) # return amount of matches – which is hopefully the amount of replacements (mind the postfixes!)
 
@@ -410,17 +431,18 @@ if __name__ == "__main__":
     writer = pypdf.PdfWriter(clone_from=reader)
     try:
         for page_index, page in enumerate(writer.pages):
-            charmaps = get_char_maps(page)
+            fonts_dict = get_fonts_dict(page)
+            font_codecs = get_font_codecs(fonts_dict)
             if (args.search is None):
-                print(f"# These fonts are referenced on page {page_index+1}: {', '.join([cm.font.name for cm in charmaps.values()])}")
-            context = Context(charmaps)
+                print(f"# These fonts are referenced on page {page_index+1}: {', '.join([fc.font.name for fc in font_codecs.values()])}")
+            context = Context(font_codecs, fonts_dict)
             contents = page.get_contents()
             # NOTE: contents may be None, ContentStream, EncodedStreamObject, ArrayObject
             if (isinstance(contents, pypdf.generic._data_structures.ArrayObject)):
                 for content in contents:
-                    total_replacements += replace_text(content, args.search, args.replace, args.delete, args.indexes, gui_treeList)
+                    total_replacements += replace_text(content, context, args.search, args.replace, args.delete, args.indexes, gui_treeList)
             elif (isinstance(contents, pypdf.generic._data_structures.ContentStream)):
-                total_replacements += replace_text(contents, args.search, args.replace, args.delete, args.indexes, gui_treeList)
+                total_replacements += replace_text(contents, context, args.search, args.replace, args.delete, args.indexes, gui_treeList)
             else:
                 raise NotImplementedError(f"Handling content of type {type(contents)} is not implemented.")
             page.replace_contents(contents)
