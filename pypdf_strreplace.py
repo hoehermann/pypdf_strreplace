@@ -27,7 +27,7 @@ class ExceptionalTranslator:
             if (key == 32):
                 print("WARNING: Missing space glyph.")
             else:
-                error_message = f"Replacement glyph »{chr(key)}« (ordinal {key}) is not available in this document for font {self.font_name}." # error message on separate line to avoid confusion with the acutal string „key“
+                error_message = f"Replacement glyph »{chr(key)}« (ordinal {key}) is not available on this page for font {self.font_name}." # error message on separate line to avoid confusion with the acutal string „key“
                 raise MissingGlyphError(error_message)
         return self.trans.__getitem__(key)
 
@@ -53,7 +53,6 @@ class FontCodec:
             raise NotImplementedError(f"Cannot decode {type(text)} „{text}“ with this {type(self.font.encoding)} encoding: {self.font.encoding}")
     def encode(self, text, reference, inject_truetype):
         #print(f"Encoding „{text}“ to conform to", type(reference))
-        font_key = None
         if (self.font.character_map != {}):
             # check glyph availability for all text with fonts subject to mapping
             available_glyphs = self.font.character_map.values()
@@ -64,27 +63,37 @@ class FontCodec:
                     if (glyph == " "):
                         print("WARNING: Missing space glyph.")
                     else:
-                        error_message = f"Replacement glyph »{glyph}« is not available in this document for font {self.font.name}."
+                        error_message = f"Replacement glyph »{glyph}« is not available on this page for font {self.font.name}."
                         raise MissingGlyphError(error_message) 
         if (isinstance(self.font.encoding, dict)):
+            windows_1252_bytes = None
+            font_tuple = None
             for c in text:
                 if (self.font.character_widths[c] == 0):
-                    print(f"Replacement glyph »{c}« is not available in this document for font {self.font.name}.")
-                    # TODO: inject font iff is truetype and needs no translation
+                    error_message = f"Replacement glyph »{c}« is not available on this page for font {self.font.name}."
+                    print(error_message)
+                    # TODO: inject font iff is truetype
+                    try:
+                        windows_1252_bytes = text.encode("Windows-1252")
+                    except UnicodeEncodeError:
+                        error_message += " Glyph is not available in Windows-1252 encoding."
+                        raise MissingGlyphError(error_message)
                     font_name = self.font.name.split('+')[-1]
-                    font_key = inject_truetype(font_name)
-                    print(f"Injected reference to font {font_name} as {font_key}.")
-            return TextStringObject(text), font_key
+                    font_tuple = inject_truetype(font_name)
+                    print(f"Preparing to inject reference to font {font_name} and use as {font_tuple[0]}.")
+            if (windows_1252_bytes and font_tuple):
+                return ByteStringObject(windows_1252_bytes), font_tuple
+            return TextStringObject(text), None
         elif (self.font.encoding == "charmap"):
             map = {v:k for k,v in self.font.character_map.items()}
-            return ByteStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode('ascii')), font_key # encoding with ascii is a wild guess
+            return ByteStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode('ascii')), None # encoding with ascii is a wild guess
         elif (isinstance(reference, TextStringObject) and isinstance(self.font.encoding, str) and self.font.character_map):
             map = {v:k for k,v in self.font.character_map.items() if not isinstance(v,str) or len(v) == 1}
             # TODO: find out if BOM needs to be added in case it was stripped (see decode)
-            return TextStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode(self.font.encoding)), font_key
+            return TextStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode(self.font.encoding)), None
         elif (isinstance(reference, ByteStringObject)):
             map = {v:k for k,v in self.font.character_map.items() if not isinstance(v,str) or len(v) == 1}
-            return ByteStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode(self.font.encoding)), font_key
+            return ByteStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode(self.font.encoding)), None
         else:
             raise NotImplementedError(f"Cannot encode this {type(self.font.encoding)} encoding: {self.font.encoding}")
 
@@ -109,13 +118,19 @@ def get_font_codecs(fonts_dict) -> Dict[str, FontCodec]:
 class Context:
     def __init__(self, font_codecs:Dict[str,FontCodec], fonts_dict):
         self.font = None
+        self.font_size = None
         self.font_codecs = font_codecs
         self.fonts_dict = fonts_dict
     def clone_shared_font_codecs(self):
         obj = type(self)(self.font_codecs, self.fonts_dict)
         obj.font = self.font
+        obj.font_size = self.font_size
         return obj
     def inject_truetype(self, postscript_name):
+        font_name = "/"+postscript_name
+        for key, font in self.fonts_dict.items():
+            if (font["/BaseFont"] == font_name):
+                return (key, self.font_size)
         prefix = "/F" # not all PDF generators use this prefix, but I am only interested in the first non-clashing index
         def int_or_zero(s):
             try:
@@ -127,10 +142,9 @@ class Context:
         font_dict = DictionaryObject()
         font_dict[NameObject("/Type")] = NameObject("/Font")
         font_dict[NameObject("/Subtype")] = NameObject("/TrueType")
-        font_dict[NameObject("/BaseFont")] = NameObject("/"+postscript_name)
-        # TODO: do not inject the same font more than once
+        font_dict[NameObject("/BaseFont")] = NameObject(font_name)
         self.fonts_dict[NameObject(dictionary_key)] = font_dict
-        return dictionary_key
+        return (dictionary_key, self.font_size)
 class PDFOperation:
     def __init__(self, operands, operator, context:Context):
         self.operands = operands
@@ -160,6 +174,7 @@ class PDFOperationTf(PDFOperation):
     def __init__(self, operands, context:Context):
         super().__init__(operands, "Tf", None)
         context.font = operands[0]
+        context.font_size = operands[1]
 class PDFOperationTd(PDFOperation):
     def __init__(self, operands, context:Context):
         super().__init__(operands, "Td", None)
@@ -203,8 +218,8 @@ class PDFOperationTJ(PDFOperation):
         if (not isinstance(sample, TextStringObject) and not isinstance(sample, ByteStringObject)):
             # in this case, just select any text operand
             sample = next((op for op in self.operands[0] if isinstance(op, TextStringObject) or isinstance(op, ByteStringObject)))
-        self.operands[0][index], font_key = font_codecs[self.context.font].encode(text, sample, self.context.inject_truetype)
-        return font_key
+        self.operands[0][index], font_tuple = font_codecs[self.context.font].encode(text, sample, self.context.inject_truetype)
+        return font_tuple
 class PDFOperationTj(PDFOperation):
     def __init__(self, operands:list[Union[TextStringObject,ByteStringObject]], context:Context):
         if (len(operands) != 1):
@@ -219,8 +234,8 @@ class PDFOperationTj(PDFOperation):
         return self.operands
     def set_operand_text(self, text, index):
         sample = self.operands[0] # Tj has only one operand
-        self.operands[0], font_key = font_codecs[self.context.font].encode(text, sample, self.context.inject_truetype)
-        return font_key
+        self.operands[0], font_tuple = font_codecs[self.context.font].encode(text, sample, self.context.inject_truetype)
+        return font_tuple
 
 def append_to_tree_list(operations, tree_list):
     root = tree_list.GetRootItem()
@@ -391,14 +406,14 @@ def replace_text(content, context, args_search, args_replace, args_delete, args_
                     for operand_index, operand in reversed(list(enumerate(operation.get_relevant_operands()))):
                         operand_change = getattr(operand, "scheduled_change", None)
                         if (operand_change):
-                            font_key = operand_change.apply(operation, operand_index, operation.get_relevant_operands())
-                            if (font_key is not None):
-                                # TODO: keep track of font size, too
+                            font_tuple = operand_change.apply(operation, operand_index, operation.get_relevant_operands())
+                            if (font_tuple is not None):
                                 # insert font-selection operation right in front of the current operation which probably is a text output operation
                                 # this should be okay since we touch each operation only once and changes to later operations have already been applied
-                                content.operations[operation_index:operation_index] = [([NameObject(font_key), NumberObject(12)], b'Tf')]
+                                injection_Tf = ([NameObject(font_tuple[0]), font_tuple[1]], b'Tf')
+                                content.operations[operation_index:operation_index] = [injection_Tf]
                     #print(f"After replacements:  {operation}")
-    print(content.operations)
+    #print(content.operations)
     return len(matches) # return amount of matches – which is hopefully the amount of replacements (mind the postfixes!)
 
 if __name__ == "__main__":
