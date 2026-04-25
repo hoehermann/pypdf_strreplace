@@ -138,12 +138,7 @@ def replace_text(content, context:Context, args_search, args_replace, args_delet
                     for operand_index, operand in reversed(list(enumerate(operation.get_relevant_operands()))):
                         operand_change = getattr(operand, "scheduled_change", None)
                         if (operand_change):
-                            font_tuple = operand_change.apply(operation, operand_index, operation.get_relevant_operands())
-                            if (font_tuple is not None):
-                                # insert font-selection operation right in front of the current operation which probably is a text output operation
-                                # this should be okay since we touch each operation only once and changes to later operations have already been applied
-                                injection_Tf = ([NameObject(font_tuple[0]), font_tuple[1]], b'Tf')
-                                content.operations[operation_index:operation_index] = [injection_Tf]
+                            operand_change.apply(operation, operand_index, operation.get_relevant_operands())
                     #print(f"After replacements:  {operation}")
     #print(content.operations)
     return len(matches) # return amount of matches – which is hopefully the amount of replacements (mind the postfixes!)
@@ -152,14 +147,13 @@ def schedule_font_switches(operations, context:Context):
     for operation in operations:
         operation_change = getattr(operation, "scheduled_change", None)
         if (operation_change):
-            #print(operation_change)
             for operand in operation.get_relevant_operands():
                 operand_change = getattr(operand, "scheduled_change", None)
                 if (operand_change and isinstance(operand_change, Text)):
-                    #print(operation.context.font_key)
-                    #print(operand_change.text)
                     font_codec = operation.context.get_font_codec()
-                    if (font_codec.check_glyph_availability(operand_change.text)):
+                    missing_glyphs = font_codec.check_glyph_availability(operand_change.text)
+                    if (missing_glyphs):
+                        print(missing_glyphs)
                         font_name = font_codec.font.name.split('+')[-1]
                         font_tuple = operation.context.inject_truetype(font_name)
                         operation.scheduled_change = Surround(
