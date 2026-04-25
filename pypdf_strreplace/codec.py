@@ -40,6 +40,8 @@ class FontCodec:
             available_glyphs = self.font.character_map.values()
             missing_glyphs = [glyph for glyph in text if glyph not in available_glyphs]
             if (" " in missing_glyphs):
+                # ignore missing spaces for now since most PDF viewers render unknown glyphs as space
+                # TODO: do not try to add a missing space glyph, inject an offset operator into PDFOperationTJ or a PDFOperationTd instead
                 print("WARNING: Missing space glyph.")
                 while (" " in missing_glyphs):
                     missing_glyphs.remove(" ")
