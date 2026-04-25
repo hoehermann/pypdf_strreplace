@@ -1,7 +1,9 @@
-from .operations import PDFOperation
+from .operations import PDFOperation, PDFOperationTJ
 from .changes import *
 from typing import List
+from pypdf.generic import NumberObject, NameObject
 import re
+from .context import Context
 
 def extract_text(operations: List[PDFOperation]):
     text = ""
@@ -87,7 +89,7 @@ def schedule_deletion(operations):
         if (operation.operator in ["TJ", "Tj", "Td", "Tf"]):
             operation.scheduled_change = Delete()
 
-def replace_text(content, context, args_search, args_replace, args_delete, args_indexes, append_to_tree_list):
+def replace_text(content, context:Context, args_search, args_replace, args_delete, args_indexes, append_to_tree_list):
     # transform plain operations to high-level objects
     operations = [PDFOperation.from_tuple(operands, operator, context) for operands, operator in content.operations]
     
@@ -110,6 +112,7 @@ def replace_text(content, context, args_search, args_replace, args_delete, args_
     if (args_search is not None and args_delete is False):
         # look up which operations contributed to each match and schedule to replace them
         schedule_replacements(operations, matches, args_replace)
+        schedule_font_switches(operations, context)
     if (args_delete):
         schedule_deletion(operations)
     
@@ -135,12 +138,38 @@ def replace_text(content, context, args_search, args_replace, args_delete, args_
                     for operand_index, operand in reversed(list(enumerate(operation.get_relevant_operands()))):
                         operand_change = getattr(operand, "scheduled_change", None)
                         if (operand_change):
-                            font_tuple = operand_change.apply(operation, operand_index, operation.get_relevant_operands())
-                            if (font_tuple is not None):
-                                # insert font-selection operation right in front of the current operation which probably is a text output operation
-                                # this should be okay since we touch each operation only once and changes to later operations have already been applied
-                                injection_Tf = ([NameObject(font_tuple[0]), font_tuple[1]], b'Tf')
-                                content.operations[operation_index:operation_index] = [injection_Tf]
+                            operand_change.apply(operation, operand_index, operation.get_relevant_operands())
                     #print(f"After replacements:  {operation}")
     #print(content.operations)
     return len(matches) # return amount of matches – which is hopefully the amount of replacements (mind the postfixes!)
+
+def schedule_font_switches(operations, context:Context):
+    for operation in operations:
+        operation_change = getattr(operation, "scheduled_change", None)
+        if (operation_change):
+            for operand in operation.get_relevant_operands():
+                operand_change = getattr(operand, "scheduled_change", None)
+                if (operand_change and isinstance(operand_change, Text)):
+                    font_codec = operation.context.get_font_codec()
+                    missing_glyphs = font_codec.check_glyph_availability(operand_change.text)
+                    if (missing_glyphs):
+                        font_name = font_codec.font.name
+                        print(f"List of replacement glyphs missing in font {font_name}: {missing_glyphs}")
+                        font_postscript_name = font_name.split('+')[-1] # the name without the subsetting prefix
+                        font_tuple = operation.context.inject_truetype(font_postscript_name)
+                        operation.scheduled_change = Surround(
+                            (font_tuple, b'Tf'),
+                            operation_change,
+                            ((operation.context.font_key, operation.context.font_size), b'Tf')
+                        ) # this will switch to the injected font for this one operand and then switches back
+            if (isinstance(operation.scheduled_change, Surround)):
+                # schedule operands to be re-encoded for the new font
+                # for a Tj operation, this is trivial since it only has one operand
+                # for a TJ operation, all operands are re-encoded even if they are not actually affected by the replacement
+                # splitting the TJ operation into surrounded Tj operations would be more elegant,
+                # but with other changes, clusterings and deletions also being necessary in virtually any non-trivial cases,
+                # re-encoding all remaining operands is easier to implement
+                for operand in operation.get_relevant_operands():
+                    if (hasattr(operand, "plain_text") and not hasattr(operand, "scheduled_change")):
+                        operand.scheduled_change = Text(operand.plain_text)
+                operation.context.font_key = font_tuple[0] # set the font that will be switched to in the context so Text.apply → PDFOperation.set_operand_text will know what font to target

@@ -1,17 +1,19 @@
 from pypdf.generic import DictionaryObject, NameObject
 from typing import Dict, cast
-from .codec import FontCodec
+from .codec import FontCodec, WinAnsiFontCodec
 from pypdf._font import Font
 
 class Context:
     def __init__(self, font_codecs:Dict[str,FontCodec], fonts_dict):
-        self.font = None
+        self.font_key = None
         self.font_size = None
         self.font_codecs = font_codecs
         self.fonts_dict = fonts_dict
+    def get_font_codec(self) -> FontCodec:
+        return self.font_codecs[self.font_key]
     def clone_shared_font_codecs(self):
         obj = type(self)(self.font_codecs, self.fonts_dict)
-        obj.font = self.font
+        obj.font_key = self.font_key
         obj.font_size = self.font_size
         return obj
     def inject_truetype(self, postscript_name):
@@ -26,13 +28,17 @@ class Context:
             except ValueError:
                 return 0
         max_font_number = max([int_or_zero(key) for key in self.fonts_dict.keys()])
-        dictionary_key = prefix+str(max_font_number+1)
+        font_key = NameObject(prefix+str(max_font_number+1))
         font_dict = DictionaryObject()
         font_dict[NameObject("/Type")] = NameObject("/Font")
         font_dict[NameObject("/Subtype")] = NameObject("/TrueType")
         font_dict[NameObject("/BaseFont")] = NameObject(font_name)
-        self.fonts_dict[NameObject(dictionary_key)] = font_dict
-        return (dictionary_key, self.font_size)
+        font_dict[NameObject('/Encoding')] = NameObject('/WinAnsiEncoding')
+        self.fonts_dict[font_key] = font_dict
+        self.font_codecs[font_key] = WinAnsiFontCodec(None)
+        print(f"Injected a reference to TrueType font „{postscript_name}“.")
+        print(f"WARNING: Font must be available to the renderer for truthful presentation.")
+        return (font_key, self.font_size)
 
 def get_fonts_dict(page):
     object_with_resources = page
