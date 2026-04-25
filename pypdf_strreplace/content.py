@@ -153,9 +153,10 @@ def schedule_font_switches(operations, context:Context):
                     font_codec = operation.context.get_font_codec()
                     missing_glyphs = font_codec.check_glyph_availability(operand_change.text)
                     if (missing_glyphs):
-                        print(missing_glyphs)
-                        font_name = font_codec.font.name.split('+')[-1]
-                        font_tuple = operation.context.inject_truetype(font_name)
+                        font_name = font_codec.font.name
+                        print(f"List of replacement glyphs missing in font {font_name}: {missing_glyphs}")
+                        font_postscript_name = font_name.split('+')[-1] # the name without the subsetting prefix
+                        font_tuple = operation.context.inject_truetype(font_postscript_name)
                         operation.scheduled_change = Surround(
                             (font_tuple, b'Tf'),
                             operation_change,
