@@ -36,6 +36,7 @@ class PDFOperationTf(PDFOperation):
 class PDFOperationTd(PDFOperation):
     def __init__(self, operands, context:Context):
         super().__init__(operands, "Td", None)
+        self.context = context
         self._infer_plain_text()
     def __str__(self):
         return f"{self.operands} {self.operator}"
@@ -45,8 +46,12 @@ class PDFOperationTd(PDFOperation):
             # consider a vertical adjustment starting a new line
             ty.plain_text = "\n"
         elif (tx != 0):
-            # interpret horizontal adjustment as space. total guess. works for the xelatex sample.
-            tx.plain_text = " "
+            space_width = self.context.get_font_codec().font.space_width
+            #print("Td", space_width, tx)
+            if (tx > space_width/5):
+                # interpret horizontal adjustment as space. total guess.
+                # the dummy sample wants tx > space_width/5, the xelatex sample space_width/15.
+                tx.plain_text = " "
         return map
 class PDFOperationTJ(PDFOperation):
     def __init__(self, operands:list[list[Union[TextStringObject,ByteStringObject,NumberObject]]], context:Context):
@@ -63,7 +68,9 @@ class PDFOperationTJ(PDFOperation):
         for operand in self.get_relevant_operands():
             if (isinstance(operand, NumberObject) or isinstance(operand, FloatObject)):
                 space_width = self.context.get_font_codec().font.space_width
-                if (operand >= space_width): # TODO: check space interpretation
+                #print("TJ", space_width, operand)
+                if (-operand >= space_width):
+                    # a large horizontal adjustment shall be represented as a space
                     operand.plain_text = " "
                 pass
             else:
