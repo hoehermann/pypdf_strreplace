@@ -1,6 +1,6 @@
 from pypdf.generic._base import TextStringObject, ByteStringObject
 from pypdf._font import Font
-from typing import Union
+from typing import Set, Union
 
 class MissingGlyphError(KeyError):
     pass
@@ -35,17 +35,19 @@ class FontCodec:
             return "".join(text.decode(self.font.encoding).translate(str.maketrans(self.font.character_map)))
         else:
             raise NotImplementedError(f"Cannot decode {type(text)} with this {type(self.font.encoding)} encoding: {self.font.encoding}")
-    def check_glyph_availability(self, text):
+    def space_glyph_available(self):
         if (self.font.character_map != {}):
             available_glyphs = self.font.character_map.values()
-            missing_glyphs = [glyph for glyph in text if glyph not in available_glyphs]
-            if (" " in missing_glyphs):
-                print("WARNING: Missing space glyph.")
-                while (" " in missing_glyphs):
-                    missing_glyphs.remove(" ")
-            return missing_glyphs
+            return " " in available_glyphs
+        return True # blindly assume all other fonts and situations come with a space glyph
+    def check_glyph_availability(self, text) -> Set[str]:
+        if (self.font.character_map != {}):
+            available_glyphs = self.font.character_map.values()
+            return set([glyph for glyph in text if glyph not in available_glyphs and glyph != " "]) # missing space should be handled in set_operand_text()
         if (isinstance(self.font.encoding, dict)):
-            return [glyph for glyph in text if glyph not in self.font.character_widths or self.font.character_widths[glyph] == 0]
+            # no idea if this check is actually correct or reliable
+            # font.encoding seems to be handled by pypdf internally – no translation needs to happen here
+            return set([glyph for glyph in text if glyph not in self.font.encoding.values() or glyph not in self.font.character_widths or self.font.character_widths[glyph] == 0])
     def encode(self, text, reference):
         #print(f"Encoding „{text}“ to conform to", type(reference))
         missing_glyphs = self.check_glyph_availability(text)
@@ -67,6 +69,8 @@ class FontCodec:
             raise NotImplementedError(f"Cannot encode this {type(self.font.encoding)} encoding: {self.font.encoding}")
 
 class WinAnsiFontCodec(FontCodec):
+    def space_glyph_available(self):
+        return True
     def check_glyph_availability(self, text):
         def is_windows_1252(glyph):
             try:
