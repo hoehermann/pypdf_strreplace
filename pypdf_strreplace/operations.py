@@ -1,6 +1,7 @@
 from pypdf.generic import TextStringObject, ByteStringObject, NumberObject, FloatObject, NameObject
 from .context import Context
 from typing import Union
+from functools import reduce
 
 class PDFOperation:
     def __init__(self, operands, operator, context:Context):
@@ -30,7 +31,7 @@ class PDFOperation:
 class PDFOperationTf(PDFOperation):
     def __init__(self, operands, context:Context):
         super().__init__(operands, "Tf", None)
-        context.font = operands[0]
+        context.font_key = operands[0]
         context.font_size = operands[1]
 class PDFOperationTd(PDFOperation):
     def __init__(self, operands, context:Context):
@@ -61,12 +62,12 @@ class PDFOperationTJ(PDFOperation):
     def _infer_plain_text(self):
         for operand in self.get_relevant_operands():
             if (isinstance(operand, NumberObject) or isinstance(operand, FloatObject)):
-                space_width = self.context.font_codecs[self.context.font].font.space_width
-                if (operand < -space_width):
+                space_width = self.context.get_font_codec().font.space_width
+                if (operand >= space_width): # TODO: check space interpretation
                     operand.plain_text = " "
                 pass
             else:
-                operand.plain_text = self.context.font_codecs[self.context.font].decode(operand)
+                operand.plain_text = self.context.get_font_codec().decode(operand)
     def get_relevant_operands(self):
         return self.operands[0]
     def set_operand_text(self, text, index):
@@ -75,8 +76,7 @@ class PDFOperationTJ(PDFOperation):
         if (not isinstance(sample, TextStringObject) and not isinstance(sample, ByteStringObject)):
             # in this case, just select any text operand
             sample = next((op for op in self.operands[0] if isinstance(op, TextStringObject) or isinstance(op, ByteStringObject)))
-        self.operands[0][index], font_tuple = self.context.font_codecs[self.context.font].encode(text, sample, self.context.inject_truetype)
-        return font_tuple
+        self.operands[0][index] = self.context.get_font_codec().encode(text, sample)
 class PDFOperationTj(PDFOperation):
     def __init__(self, operands:list[Union[TextStringObject,ByteStringObject]], context:Context):
         if (len(operands) != 1):
@@ -86,10 +86,9 @@ class PDFOperationTj(PDFOperation):
     def __str__(self):
         return f"„{self.get_relevant_operands()}“ {self.operator}"
     def _infer_plain_text(self):
-        self.operands[0].plain_text = self.context.font_codecs[self.context.font].decode(self.operands[0])
+        self.operands[0].plain_text = self.context.get_font_codec().decode(self.operands[0])
     def get_relevant_operands(self):
         return self.operands
     def set_operand_text(self, text, index):
         sample = self.operands[0] # Tj has only one operand
-        self.operands[0], font_tuple = self.context.font_codecs[self.context.font].encode(text, sample, self.context.inject_truetype)
-        return font_tuple
+        self.operands[0] = self.context.get_font_codec().encode(text, sample)

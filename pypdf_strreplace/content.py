@@ -1,7 +1,9 @@
-from .operations import PDFOperation
+from .operations import PDFOperation, PDFOperationTJ
 from .changes import *
 from typing import List
+from pypdf.generic import NumberObject, NameObject
 import re
+from .context import Context
 
 def extract_text(operations: List[PDFOperation]):
     text = ""
@@ -87,7 +89,7 @@ def schedule_deletion(operations):
         if (operation.operator in ["TJ", "Tj", "Td", "Tf"]):
             operation.scheduled_change = Delete()
 
-def replace_text(content, context, args_search, args_replace, args_delete, args_indexes, append_to_tree_list):
+def replace_text(content, context:Context, args_search, args_replace, args_delete, args_indexes, append_to_tree_list):
     # transform plain operations to high-level objects
     operations = [PDFOperation.from_tuple(operands, operator, context) for operands, operator in content.operations]
     
@@ -110,6 +112,7 @@ def replace_text(content, context, args_search, args_replace, args_delete, args_
     if (args_search is not None and args_delete is False):
         # look up which operations contributed to each match and schedule to replace them
         schedule_replacements(operations, matches, args_replace)
+        schedule_font_switches(operations, context)
     if (args_delete):
         schedule_deletion(operations)
     
@@ -144,3 +147,28 @@ def replace_text(content, context, args_search, args_replace, args_delete, args_
                     #print(f"After replacements:  {operation}")
     #print(content.operations)
     return len(matches) # return amount of matches – which is hopefully the amount of replacements (mind the postfixes!)
+
+def schedule_font_switches(operations, context:Context):
+    for operation in operations:
+        operation_change = getattr(operation, "scheduled_change", None)
+        if (operation_change):
+            #print(operation_change)
+            for operand in operation.get_relevant_operands():
+                operand_change = getattr(operand, "scheduled_change", None)
+                if (operand_change and isinstance(operand_change, Text)):
+                    #print(operation.context.font_key)
+                    #print(operand_change.text)
+                    font_codec = operation.context.get_font_codec()
+                    if (font_codec.check_glyph_availability(operand_change.text)):
+                        font_name = font_codec.font.name.split('+')[-1]
+                        font_tuple = operation.context.inject_truetype(font_name)
+                        operation.scheduled_change = Surround(
+                            (font_tuple, b'Tf'),
+                            operation_change,
+                            ((operation.context.font_key, operation.context.font_size), b'Tf')
+                        )
+            if (isinstance(operation.scheduled_change, Surround)):
+                for operand in operation.get_relevant_operands():
+                    if (hasattr(operand, "plain_text") and not hasattr(operand, "scheduled_change")):
+                        operand.scheduled_change = Text(operand.plain_text)
+                operation.context.font_key = font_tuple[0]

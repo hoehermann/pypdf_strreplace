@@ -35,43 +35,66 @@ class FontCodec:
             return "".join(text.decode(self.font.encoding).translate(str.maketrans(self.font.character_map)))
         else:
             raise NotImplementedError(f"Cannot decode {type(text)} with this {type(self.font.encoding)} encoding: {self.font.encoding}")
-    def inject_font_or_raise(self, text, missing_glyphs, inject_truetype):
-        error_message = f"Replacement glyphs {missing_glyphs} are not available on this page for font {self.font.name}."
-        if (inject_truetype is None):
-            error_message += " Font injection disabled for explicitly kerned text."
-            raise MissingGlyphError(error_message)
-        try:
-            windows_1252_bytes = text.encode("Windows-1252")
-        except UnicodeEncodeError:
-            error_message += " At last one glyph is not available in Windows-1252 encoding."
-            raise MissingGlyphError(error_message)
-        font_name = self.font.name.split('+')[-1]
-        font_tuple = inject_truetype(font_name)
-        print(f"Preparing to inject reference to font {font_name} and use as {font_tuple[0]}.")
-        return ByteStringObject(windows_1252_bytes), font_tuple
-    def encode(self, text, reference, inject_truetype):
+    # def inject_font_or_raise(self, text, missing_glyphs, inject_truetype):
+    #     error_message = f"Replacement glyphs {missing_glyphs} are not available on this page for font {self.font.name}."
+    #     if (inject_truetype is None):
+    #         error_message += " Font injection disabled for explicitly kerned text."
+    #         raise MissingGlyphError(error_message)
+    #     try:
+    #         windows_1252_bytes = text.encode("Windows-1252")
+    #     except UnicodeEncodeError:
+    #         error_message += " At last one glyph is not available in Windows-1252 encoding."
+    #         raise MissingGlyphError(error_message)
+    #     font_name = self.font.name.split('+')[-1]
+    #     font_tuple = inject_truetype(font_name)
+    #     print(f"Preparing to inject reference to font {font_name} and use as {font_tuple[0]}.")
+    #     return ByteStringObject(windows_1252_bytes), font_tuple
+    def check_glyph_availability(self, text):
         if (self.font.character_map != {}):
             available_glyphs = self.font.character_map.values()
             missing_glyphs = [glyph for glyph in text if glyph not in available_glyphs]
             if (" " in missing_glyphs):
                 print("WARNING: Missing space glyph.")
                 missing_glyphs.remove(" ")
-            if (missing_glyphs):
-                inject_truetype = None
-                return self.inject_font_or_raise(text, missing_glyphs, inject_truetype)
+            return missing_glyphs
         if (isinstance(self.font.encoding, dict)):
-            missing_glyphs = [glyph for glyph in text if glyph not in self.font.character_widths or self.font.character_widths[glyph] == 0]
-            if (missing_glyphs):
-                return self.inject_font_or_raise(text, missing_glyphs, inject_truetype)
-            return TextStringObject(text), None
+            return [glyph for glyph in text if glyph not in self.font.character_widths or self.font.character_widths[glyph] == 0]
+    def encode(self, text, reference):
+        #print(f"Encoding „{text}“ to conform to", type(reference))
+        missing_glyphs = self.check_glyph_availability(text)
+        if (missing_glyphs):
+            error_message = f"Replacement glyphs {missing_glyphs} are not available on this page for font {self.font.name}."
+            raise MissingGlyphError(error_message)
+        if (isinstance(self.font.encoding, dict)):
+            return TextStringObject(text)
         elif (self.font.encoding == "charmap"):
             map = {v:k for k,v in self.font.character_map.items()}
-            return ByteStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode('ascii')), None
+            return ByteStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode('ascii'))
         elif (isinstance(reference, TextStringObject) and isinstance(self.font.encoding, str) and self.font.character_map):
             map = {v:k for k,v in self.font.character_map.items() if not isinstance(v,str) or len(v) == 1}
-            return TextStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode(self.font.encoding)), None
+            return TextStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode(self.font.encoding))
         elif (isinstance(reference, ByteStringObject)):
             map = {v:k for k,v in self.font.character_map.items() if not isinstance(v,str) or len(v) == 1}
-            return ByteStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode(self.font.encoding)), None
+            return ByteStringObject(text.translate(ExceptionalTranslator(map, self.font.name)).encode(self.font.encoding))
         else:
             raise NotImplementedError(f"Cannot encode this {type(self.font.encoding)} encoding: {self.font.encoding}")
+
+class WinAnsiFontCodec(FontCodec):
+    def check_glyph_availability(self, text):
+        def is_windows_1252(glyph):
+            try:
+                windows_1252_bytes = glyph.encode("Windows-1252")
+                return True
+            except UnicodeEncodeError:
+                return False
+        return [glyph for glyph in text if not is_windows_1252(glyph)]
+    def decode(self, text):
+        raise NotImplementedError("This should never be called.")
+    def encode(self, text, reference):
+        #print(f"Encoding „{text}“")
+        try:
+            return ByteStringObject(text.encode("Windows-1252"))
+        except UnicodeEncodeError as ue:
+            glyph = ue.args[1][ue.args[2]]
+            error_message = f"Glyph »{glyph}« is not available in Windows-1252."
+            raise MissingGlyphError(error_message)

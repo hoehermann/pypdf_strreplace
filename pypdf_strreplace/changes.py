@@ -21,4 +21,16 @@ class Text(Change):
     def __str__(self):
         return f"Set text to „{self.text}“"
     def apply(self, element=None, index=None, collection=None):
-        return element.set_operand_text(self.text, index)
+        element.set_operand_text(self.text, index)
+    
+class Surround(Change):
+    def __init__(self, prefix, infix, postfix):
+        self.prefix = prefix
+        self.infix = infix
+        self.postfix = postfix
+    def __str__(self):
+        return f"Surround with „{self.prefix}“ and „{self.postfix}“."
+    def apply(self, element=None, index:int=None, collection:list=None):
+        self.infix.apply(element, index, collection)
+        collection[index+1:index+1] = [self.postfix]
+        collection[index:index] = [self.prefix]
