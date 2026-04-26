@@ -1,18 +1,20 @@
-from pypdf.generic import DictionaryObject, NameObject
+from pypdf.generic import DictionaryObject, NameObject, NumberObject, ArrayObject
 from typing import Dict, cast
 from .codec import FontCodec, WinAnsiFontCodec
 from pypdf._font import Font
+from pypdf.constants import PageAttributes, Resources
 
 class Context:
-    def __init__(self, font_codecs:Dict[str,FontCodec], fonts_dict):
+    def __init__(self, font_codecs:Dict[str,FontCodec], fonts_dict, font_repository):
         self.font_key = None
         self.font_size = None
         self.font_codecs = font_codecs
         self.fonts_dict = fonts_dict
+        self.font_repository = font_repository
     def get_font_codec(self) -> FontCodec:
         return self.font_codecs[self.font_key]
     def clone_shared_font_codecs(self):
-        obj = type(self)(self.font_codecs, self.fonts_dict)
+        obj = type(self)(self.font_codecs, self.fonts_dict, self.font_repository)
         obj.font_key = self.font_key
         obj.font_size = self.font_size
         return obj
@@ -34,19 +36,29 @@ class Context:
         font_dict[NameObject("/Subtype")] = NameObject("/TrueType")
         font_dict[NameObject("/BaseFont")] = NameObject(font_name)
         font_dict[NameObject('/Encoding')] = NameObject('/WinAnsiEncoding')
+        widths = None
+        if (self.font_repository):
+            widths = self.font_repository.get_widths(postscript_name)
+        if (widths):
+            font_dict[NameObject('/Widths')] = ArrayObject([NumberObject(width) for width in widths])
+            # these describe the range of the Widths array in respect to the entire WinAnsiEncoding
+            font_dict[NameObject('/FirstChar')] = NumberObject(0)
+            font_dict[NameObject('/LastChar')] = NumberObject(255)
+        else:
+            print(f"WARNING: Font „{postscript_name}“ has not been loaded. Horizontal spacing is likely to be inaccurate.")
         self.fonts_dict[font_key] = font_dict
         self.font_codecs[font_key] = WinAnsiFontCodec(None)
-        print(f"Injected a reference to TrueType font „{postscript_name}“.")
-        print(f"WARNING: Font must be available to the renderer for truthful presentation.")
+        print(f"WARNING: Font „{postscript_name}“ must be available to the renderer for truthful presentation.")
         return (font_key, self.font_size)
 
-def get_fonts_dict(page):
+def get_fonts_dict(page) -> DictionaryObject:
     object_with_resources = page
-    while NameObject("/Resources") not in object_with_resources:
-        object_with_resources = object_with_resources["/Parent"].get_object()
-    resources_dict = cast(DictionaryObject, object_with_resources["/Resources"])
-    if "/Font" in resources_dict:
-        return cast(DictionaryObject, resources_dict["/Font"])
+    while NameObject(PageAttributes.RESOURCES) not in object_with_resources:
+        # /Resources can be inherited so we look to parents
+        object_with_resources = object_with_resources[PageAttributes.PARENT].get_object()
+    resources_dict = cast(DictionaryObject, object_with_resources[PageAttributes.RESOURCES])
+    if Resources.FONT in resources_dict:
+        return cast(DictionaryObject, resources_dict[Resources.FONT])
     raise RuntimeError("This tool was not tested on PDF documents without any fonts.")
 
 def get_font_codecs(fonts_dict) -> Dict[str, FontCodec]:

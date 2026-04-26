@@ -15,6 +15,7 @@ def main():
     parser.add_argument('--compress', action='store_true', help='Compress output.')
     parser.add_argument("--debug-ui", action="store_true", help="Show debug interface.")
     parser.add_argument("--indexes", type=int, action="extend", nargs="+", help="Indexes of matches for replacement.")
+    parser.add_argument('--fonts', type=str, nargs='*', help="Font file(s) to load to embed in case of missing glyphs.")
     args = parser.parse_args()
 
     append_to_tree_list = None
@@ -23,6 +24,14 @@ def main():
         from .debug import append_to_tree_list as _append_to_tree_list
         app, frame, gui_treeList = initialize_debug_ui()
         append_to_tree_list = lambda operations: _append_to_tree_list(operations, gui_treeList)
+
+    font_repository = None
+    if (args.fonts):
+        from .font import FontRepository
+        font_repository = FontRepository()
+        for font_filename in args.fonts:
+            postscript_name, _ = font_repository.load(font_filename)
+            print(f"Loaded font „{postscript_name}“.")
 
     total_replacements = 0
     reader = PdfReader(args.input)
@@ -33,7 +42,7 @@ def main():
             font_codecs = get_font_codecs(fonts_dict)
             if (args.search is None):
                 print(f"# These fonts are referenced on page {page_index+1}: {', '.join([fc.font.name for fc in font_codecs.values()])}")
-            context = Context(font_codecs, fonts_dict)
+            context = Context(font_codecs, fonts_dict, font_repository)
             contents = page.get_contents()
             if (isinstance(contents, ArrayObject)):
                 for content in contents:
