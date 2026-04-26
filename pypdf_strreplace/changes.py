@@ -29,7 +29,7 @@ class Surround(Change):
         self.infix = infix
         self.postfix = postfix
     def __str__(self):
-        return f"Surround with „{self.prefix}“ and „{self.postfix}“."
+        return f"Insert «{self.prefix}» before and «{self.postfix}» after."
     def apply(self, element=None, index:int=None, collection:list=None):
         self.infix.apply(element, index, collection)
         collection[index+1:index+1] = [self.postfix]
