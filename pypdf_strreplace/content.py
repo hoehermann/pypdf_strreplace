@@ -161,9 +161,15 @@ def schedule_font_switches(operations, context:Context):
                             (font_tuple, b'Tf'),
                             operation_change,
                             ((operation.context.font_key, operation.context.font_size), b'Tf')
-                        )
+                        ) # this will switch to the injected font for this one operand and then switches back
             if (isinstance(operation.scheduled_change, Surround)):
+                # schedule operands to be re-encoded for the new font
+                # for a Tj operation, this is trivial since it only has one operand
+                # for a TJ operation, all operands are re-encoded even if they are not actually affected by the replacement
+                # splitting the TJ operation into surrounded Tj operations would be more elegant,
+                # but with other changes, clusterings and deletions also being necessary in virtually any non-trivial cases,
+                # re-encoding all remaining operands is easier to implement
                 for operand in operation.get_relevant_operands():
                     if (hasattr(operand, "plain_text") and not hasattr(operand, "scheduled_change")):
                         operand.scheduled_change = Text(operand.plain_text)
-                operation.context.font_key = font_tuple[0]
+                operation.context.font_key = font_tuple[0] # set the font that will be switched to in the context so Text.apply → PDFOperation.set_operand_text will know what font to target
