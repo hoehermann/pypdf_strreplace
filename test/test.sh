@@ -45,4 +45,5 @@ do_test "dmytryo_multiple_occurrences" "Dmytro" "text" "fuzz"
 do_test "dmytryo_needle_remains" "Dmytro" "text" "context"
 
 # this shows how horizontal positioning can be off
+# the horizontal position of the α seems to be set absolutely (by a Td operation)
 # --input pdfs/xelatex.pdf --search "mes wit" --replace "ws can was" --output out.pdf
