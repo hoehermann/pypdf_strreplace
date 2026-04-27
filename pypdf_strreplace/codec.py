@@ -35,17 +35,15 @@ class FontCodec:
             return "".join(text.decode(self.font.encoding).translate(str.maketrans(self.font.character_map)))
         else:
             raise NotImplementedError(f"Cannot decode {type(text)} with this {type(self.font.encoding)} encoding: {self.font.encoding}")
+    def space_glyph_available(self):
+        if (self.font.character_map != {}):
+            available_glyphs = self.font.character_map.values()
+            return " " in available_glyphs
+        return True # blindly assume all other fonts and situations come with a space glyph
     def check_glyph_availability(self, text):
         if (self.font.character_map != {}):
             available_glyphs = self.font.character_map.values()
-            missing_glyphs = [glyph for glyph in text if glyph not in available_glyphs]
-            if (" " in missing_glyphs):
-                # ignore missing spaces for now since most PDF viewers render unknown glyphs as space
-                # TODO: do not try to add a missing space glyph, inject an offset operator into PDFOperationTJ or a PDFOperationTd instead
-                print("WARNING: Missing space glyph.")
-                while (" " in missing_glyphs):
-                    missing_glyphs.remove(" ")
-            return missing_glyphs
+            return [glyph for glyph in text if glyph not in available_glyphs and glyph != " "] # missing space should be handled in set_operand_text()
         if (isinstance(self.font.encoding, dict)):
             return [glyph for glyph in text if glyph not in self.font.character_widths or self.font.character_widths[glyph] == 0]
     def encode(self, text, reference):
@@ -69,6 +67,8 @@ class FontCodec:
             raise NotImplementedError(f"Cannot encode this {type(self.font.encoding)} encoding: {self.font.encoding}")
 
 class WinAnsiFontCodec(FontCodec):
+    def space_glyph_available(self):
+        return True
     def check_glyph_availability(self, text):
         def is_windows_1252(glyph):
             try:

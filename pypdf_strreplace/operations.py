@@ -85,7 +85,16 @@ class PDFOperationTJ(PDFOperation):
         if (not isinstance(sample, TextStringObject) and not isinstance(sample, ByteStringObject)):
             # in this case, just select any text operand
             sample = next((op for op in self.operands[0] if isinstance(op, TextStringObject) or isinstance(op, ByteStringObject)))
-        self.operands[0][index] = self.context.get_font_codec().encode(text, sample)
+        codec = self.context.get_font_codec()
+        if (codec.space_glyph_available()):
+            self.operands[0][index] = codec.encode(text, sample)
+        else:
+            # emulate spaces by inserting horizontal adjustment
+            parts = [codec.encode(part, sample) for part in text.split(" ")]
+            parts = reduce(lambda l,e: l+[e, NumberObject(-codec.font.space_width*2)], parts, [])
+            parts.pop()
+            print(parts)
+            self.operands[0][index:index+1] = parts
 class PDFOperationTj(PDFOperation):
     def __init__(self, operands:list[Union[TextStringObject,ByteStringObject]], context:Context):
         if (len(operands) != 1):
