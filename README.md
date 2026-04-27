@@ -30,7 +30,7 @@ Since PDF is a fairly complex and convoluted file format, searching and replacin
 * PDF files can contain fonts. Fonts may be "subset". This means glyphs ("characters") which are not used in the document are stripped from the font. As a result, you cannot use glyphs which are not used elsewhere in the document.
 * Some sequences of letters can be combined into single glyphs. This is called "ligature". This tool does not care about ligatures. Sometimes it works.
 * In case a glyph is not available in one font, the PDF generator may switch to a different font spontaneously. This can happen even for single glyphs. This tool will use only the font which is selected at the beginning of the needle.
-* In PDF, you can adjust the position of individual letters in detail. This may be called "kerning". Support for replacing text with letters affected by this technique is hit or miss.
+* In PDF, you can adjust the position of individual letters in detail. This may be called "kerning". Support for replacing text containing letters affected by this technique is hit or miss.
 
 This list is not exhaustive.
 
