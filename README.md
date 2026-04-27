@@ -5,7 +5,7 @@ This tool searches and replaces text in PDF files using [PyPDF](https://github.c
 Some alternative approaches are discussed [here](https://stackoverflow.com/questions/41769120/search-and-replace-for-text-within-a-pdf-in-python/) and 
 [here](https://stackoverflow.com/questions/31703037/how-can-i-change-modify-replace-text-in-a-pdf-using-python).
 
-**Requires pypdf version starting with 6.6.x.** Newer may work, too. This tool is known to work with pypdf 6.10.2.
+**Requires pypdf version starting with 6.6.x.** Newer versions may work, too. This tool is known to work with pypdf 6.10.2.
 
 ### Usage
 
