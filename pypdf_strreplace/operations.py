@@ -46,11 +46,14 @@ class PDFOperationTd(PDFOperation):
             # consider a vertical adjustment starting a new line
             ty.plain_text = "\n"
         elif (tx != 0):
+            text_width = 0 # TODO: keep track of the width of glyphs on the current line
+            # really involved since it is affected my character spacing, word spacing,…
+            # until this is calculated precisely, all reasonably large horizontal positionings are regarded as a space
+            # problems manifest in the xelatex sample around the α
             space_width = self.context.get_font_codec().font.space_width
-            #print("Td", space_width, tx)
-            if (tx > space_width/5):
-                # interpret horizontal adjustment as space. total guess.
-                # the dummy sample wants tx > space_width/5, the xelatex sample space_width/15.
+            space_width /= 1000 # space_width seems to be thousandths of a unit of text space, tx is unscaled text space
+            if (tx >= text_width + space_width):
+                # tx has moved the start of the line far enough to produce a space
                 tx.plain_text = " "
         return map
 class PDFOperationTJ(PDFOperation):
@@ -68,7 +71,6 @@ class PDFOperationTJ(PDFOperation):
         for operand in self.get_relevant_operands():
             if (isinstance(operand, NumberObject) or isinstance(operand, FloatObject)):
                 space_width = self.context.get_font_codec().font.space_width
-                #print("TJ", space_width, operand)
                 if (-operand >= space_width):
                     # a large horizontal adjustment shall be represented as a space
                     operand.plain_text = " "
