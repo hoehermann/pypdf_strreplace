@@ -48,7 +48,8 @@ class Context:
             print(f"WARNING: Font „{postscript_name}“ has not been loaded. Horizontal spacing is likely to be inaccurate.")
         self.fonts_dict[font_key] = font_dict
         self.font_codecs[font_key] = WinAnsiFontCodec(None)
-        print(f"WARNING: Font „{postscript_name}“ must be available to the renderer for truthful presentation.")
+        print(f"Document now references font „{postscript_name}“.")
+        print("WARNING: The font must be available to the renderer for truthful presentation.")
         return (font_key, self.font_size)
 
 def get_fonts_dict(page) -> DictionaryObject:
