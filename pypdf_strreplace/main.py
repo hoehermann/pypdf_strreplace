@@ -42,7 +42,7 @@ def main():
             font_codecs = get_font_codecs(fonts_dict)
             if (args.search is None):
                 print(f"# These fonts are referenced on page {page_index+1}: {', '.join([fc.font.name for fc in font_codecs.values()])}")
-            context = Context(font_codecs, fonts_dict, font_repository)
+            context = Context(font_codecs, fonts_dict, font_repository, writer)
             contents = page.get_contents()
             if (isinstance(contents, ArrayObject)):
                 for content in contents:

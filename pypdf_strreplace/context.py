@@ -3,18 +3,20 @@ from typing import Dict, cast
 from .codec import FontCodec, WinAnsiFontCodec
 from pypdf._font import Font
 from pypdf.constants import PageAttributes, Resources
+from pypdf import PdfWriter
 
 class Context:
-    def __init__(self, font_codecs:Dict[str,FontCodec], fonts_dict, font_repository):
+    def __init__(self, font_codecs:Dict[str,FontCodec], fonts_dict, font_repository, pdf_writer:PdfWriter):
         self.font_key = None
         self.font_size = None
         self.font_codecs = font_codecs
         self.fonts_dict = fonts_dict
         self.font_repository = font_repository
+        self.pdf_writer = pdf_writer
     def get_font_codec(self) -> FontCodec:
         return self.font_codecs[self.font_key]
     def clone_shared_font_codecs(self):
-        obj = type(self)(self.font_codecs, self.fonts_dict, self.font_repository)
+        obj = type(self)(self.font_codecs, self.fonts_dict, self.font_repository, self.pdf_writer)
         obj.font_key = self.font_key
         obj.font_size = self.font_size
         return obj
@@ -35,18 +37,18 @@ class Context:
         font_dict[NameObject("/Type")] = NameObject("/Font")
         font_dict[NameObject("/Subtype")] = NameObject("/TrueType")
         font_dict[NameObject("/BaseFont")] = NameObject(font_name)
-        font_dict[NameObject('/Encoding')] = NameObject('/WinAnsiEncoding')
+        font_dict[NameObject("/Encoding")] = NameObject("/WinAnsiEncoding")
         widths = None
         if (self.font_repository):
             widths = self.font_repository.get_widths(postscript_name)
         if (widths):
-            font_dict[NameObject('/Widths')] = ArrayObject([NumberObject(width) for width in widths])
+            font_dict[NameObject("/Widths")] = ArrayObject([NumberObject(width) for width in widths])
             # these describe the range of the Widths array in respect to the entire WinAnsiEncoding
-            font_dict[NameObject('/FirstChar')] = NumberObject(0)
-            font_dict[NameObject('/LastChar')] = NumberObject(255)
+            font_dict[NameObject("/FirstChar")] = NumberObject(0)
+            font_dict[NameObject("/LastChar")] = NumberObject(255)
         else:
             print(f"WARNING: Font „{postscript_name}“ has not been loaded. Horizontal spacing is likely to be inaccurate.")
-        self.fonts_dict[font_key] = font_dict
+        self.fonts_dict[font_key] = self.pdf_writer._add_object(font_dict) # stores font_dict as Resource with IndirectReference
         self.font_codecs[font_key] = WinAnsiFontCodec(None)
         print(f"Document now references font „{postscript_name}“.")
         print("WARNING: The font must be available to the renderer for truthful presentation.")
