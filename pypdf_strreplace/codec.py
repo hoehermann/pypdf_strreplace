@@ -1,6 +1,6 @@
 from pypdf.generic._base import TextStringObject, ByteStringObject
 from pypdf._font import Font
-from typing import Union
+from typing import Set, Union
 
 class MissingGlyphError(KeyError):
     pass
@@ -40,12 +40,12 @@ class FontCodec:
             available_glyphs = self.font.character_map.values()
             return " " in available_glyphs
         return True # blindly assume all other fonts and situations come with a space glyph
-    def check_glyph_availability(self, text):
+    def check_glyph_availability(self, text) -> Set[str]:
         if (self.font.character_map != {}):
             available_glyphs = self.font.character_map.values()
-            return [glyph for glyph in text if glyph not in available_glyphs and glyph != " "] # missing space should be handled in set_operand_text()
+            return set([glyph for glyph in text if glyph not in available_glyphs and glyph != " "]) # missing space should be handled in set_operand_text()
         if (isinstance(self.font.encoding, dict)):
-            return [glyph for glyph in text if glyph not in self.font.character_widths or self.font.character_widths[glyph] == 0]
+            return set([glyph for glyph in text if glyph not in self.font.character_widths or self.font.character_widths[glyph] == 0]) # no idea if this check is actually reliable
     def encode(self, text, reference):
         #print(f"Encoding „{text}“ to conform to", type(reference))
         missing_glyphs = self.check_glyph_availability(text)
